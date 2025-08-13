@@ -281,7 +281,10 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 	}
 	if err != nil {
 		warnLog.Printf("connect to %s failed: %v", dest, err)
-		conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
+		// Use host unreachable response for any upstream failure so
+		// the client is aware that the request could not be
+		// satisfied through the configured proxy chain.
+		conn.Write([]byte{0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}
 	defer remote.Close()
@@ -306,26 +309,27 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 func dialChain(chain []Hop, finalHost string, finalPort int) (net.Conn, error) {
 	var conn net.Conn
 	var err error
-	targetHost := finalHost
-	targetPort := finalPort
 	for i := 0; i < len(chain); i++ {
 		hop := chain[i]
+
+		// Determine the next address this hop should connect to. By
+		// default the last hop targets the final destination.
+		nextHost := finalHost
+		nextPort := finalPort
 		if i+1 < len(chain) {
-			next := chain[i+1]
-			targetHost = next.Host
-			targetPort = next.Port
-		} else {
-			targetHost = finalHost
-			targetPort = finalPort
+			nextHop := chain[i+1]
+			nextHost = nextHop.Host
+			nextPort = nextHop.Port
 		}
-		conn, err = connectHop(conn, hop, targetHost, targetPort)
+
+		conn, err = connectHop(conn, hop, nextHost, nextPort)
 		if err != nil {
 			if conn != nil {
 				conn.Close()
 			}
-			return nil, err
+			return nil, fmt.Errorf("hop %s: %w", hop.Name, err)
 		}
-		debugLog.Printf("connected to hop %s targeting %s:%d", hop.Name, targetHost, targetPort)
+		debugLog.Printf("connected to hop %s targeting %s:%d", hop.Name, nextHost, nextPort)
 	}
 	return conn, nil
 }

@@ -11,5 +11,10 @@ chains:
       - name: "proxy1"
         username: "puser"
         password: "ppass"
-        host: "proxy.example"
+        host: "proxy1.example"
+        port: 1080
+      - name: "proxy2"
+        username: "puser2"
+        password: "ppass2"
+        host: "proxy2.example"
         port: 1080
