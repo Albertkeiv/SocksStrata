@@ -325,6 +325,7 @@ func dialChain(chain []Hop, finalHost string, finalPort int) (net.Conn, error) {
 			}
 			return nil, err
 		}
+		debugLog.Printf("connected to hop %s targeting %s:%d", hop.Name, targetHost, targetPort)
 	}
 	return conn, nil
 }
@@ -334,6 +335,7 @@ func connectHop(prev net.Conn, hop Hop, host string, port int) (net.Conn, error)
 	var conn net.Conn
 	var err error
 	if prev == nil {
+		debugLog.Printf("dialing hop %s at %s", hop.Name, addr)
 		conn, err = net.Dial("tcp", addr)
 		if err != nil {
 			return nil, err
@@ -405,6 +407,7 @@ func connectHop(prev net.Conn, hop Hop, host string, port int) (net.Conn, error)
 	if _, err := io.ReadFull(conn, buf[:skip+2]); err != nil {
 		return nil, err
 	}
+	debugLog.Printf("hop %s connection established", hop.Name)
 	return conn, nil
 }
 
