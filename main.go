@@ -72,6 +72,23 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Printf("listening on %s", addr)
+=======
+	"strconv"
+)
+
+var (
+	listenAddr = flag.String("addr", ":1080", "listen address")
+	username   = flag.String("user", "user", "username")
+	password   = flag.String("pass", "pass", "password")
+)
+
+func main() {
+	flag.Parse()
+	ln, err := net.Listen("tcp", *listenAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("listening on %s", *listenAddr)
 	for {
 		c, err := ln.Accept()
 		if err != nil {

@@ -21,4 +21,12 @@ go run . -config config.yaml
 ```
 
 The server listens on the configured address and forwards TCP traffic after
+
+## Usage
+
+```
+go run . -addr :1080 -user myuser -pass mypass
+```
+
+The server listens on the provided address and forwards TCP traffic after
 successful authentication.
