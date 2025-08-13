@@ -102,54 +102,61 @@ func handleConn(conn net.Conn, user, pass string) {
 		log.Println("read methods:", err)
 		return
 	}
+	noAuth := user == "" || pass == ""
+	want := byte(0x02)
+	if noAuth {
+		want = 0x00
+	}
 	method := byte(0xFF)
 	for i := 0; i < nmethods; i++ {
-		if buf[i] == 0x02 {
-			method = 0x02
+		if buf[i] == want {
+			method = want
 			break
 		}
 	}
-	if method != 0x02 {
+	if method == 0xFF {
 		conn.Write([]byte{0x05, 0xFF})
 		return
 	}
-	if _, err := conn.Write([]byte{0x05, 0x02}); err != nil {
+	if _, err := conn.Write([]byte{0x05, method}); err != nil {
 		return
 	}
-	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
-		log.Println("auth header:", err)
-		return
-	}
-	if buf[0] != 0x01 {
-		log.Println("bad auth version", buf[0])
-		return
-	}
-	ulen := int(buf[1])
-	if ulen == 0 || ulen > 255 {
-		log.Println("bad ulen", ulen)
-		return
-	}
-	if _, err := io.ReadFull(conn, buf[:ulen+1]); err != nil {
-		log.Println("read uname and plen:", err)
-		return
-	}
-	uname := string(buf[:ulen])
-	plen := int(buf[ulen])
-	if plen == 0 || plen > 255 {
-		log.Println("bad plen", plen)
-		return
-	}
-	if _, err := io.ReadFull(conn, buf[:plen]); err != nil {
-		log.Println("read passwd:", err)
-		return
-	}
-	passwd := string(buf[:plen])
-	if uname != user || passwd != pass {
-		conn.Write([]byte{0x01, 0x01})
-		return
-	}
-	if _, err := conn.Write([]byte{0x01, 0x00}); err != nil {
-		return
+	if method == 0x02 {
+		if _, err := io.ReadFull(conn, buf[:2]); err != nil {
+			log.Println("auth header:", err)
+			return
+		}
+		if buf[0] != 0x01 {
+			log.Println("bad auth version", buf[0])
+			return
+		}
+		ulen := int(buf[1])
+		if ulen == 0 || ulen > 255 {
+			log.Println("bad ulen", ulen)
+			return
+		}
+		if _, err := io.ReadFull(conn, buf[:ulen+1]); err != nil {
+			log.Println("read uname and plen:", err)
+			return
+		}
+		uname := string(buf[:ulen])
+		plen := int(buf[ulen])
+		if plen == 0 || plen > 255 {
+			log.Println("bad plen", plen)
+			return
+		}
+		if _, err := io.ReadFull(conn, buf[:plen]); err != nil {
+			log.Println("read passwd:", err)
+			return
+		}
+		passwd := string(buf[:plen])
+		if uname != user || passwd != pass {
+			conn.Write([]byte{0x01, 0x01})
+			return
+		}
+		if _, err := conn.Write([]byte{0x01, 0x00}); err != nil {
+			return
+		}
 	}
 	if _, err := io.ReadFull(conn, buf[:4]); err != nil {
 		log.Println("read request header:", err)
