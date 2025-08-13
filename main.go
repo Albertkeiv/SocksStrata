@@ -12,6 +12,12 @@ import (
 	"strings"
 )
 
+var (
+	infoLog  = log.New(os.Stdout, "INFO: ", log.LstdFlags)
+	warnLog  = log.New(os.Stdout, "WARNING: ", log.LstdFlags)
+	debugLog = log.New(os.Stdout, "DEBUG: ", log.LstdFlags)
+)
+
 type Config struct {
 	Bind     string
 	Port     int
@@ -71,12 +77,17 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("listening on %s", addr)
+	infoLog.Printf("listening on %s", addr)
 	for {
 		c, err := ln.Accept()
 		if err != nil {
-			log.Println("accept:", err)
+			warnLog.Printf("accept: %v", err)
 			continue
+		}
+		if ra, ok := c.RemoteAddr().(*net.TCPAddr); ok {
+			infoLog.Printf("client connected: %s", ra.IP)
+		} else {
+			infoLog.Printf("client connected: %s", c.RemoteAddr())
 		}
 		go handleConn(c, cfg.Username, cfg.Password)
 	}
@@ -86,22 +97,23 @@ func handleConn(conn net.Conn, user, pass string) {
 	defer conn.Close()
 	buf := make([]byte, 260)
 	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
-		log.Println("handshake read:", err)
+		warnLog.Printf("handshake read: %v", err)
 		return
 	}
 	if buf[0] != 0x05 {
-		log.Println("unsupported version", buf[0])
+		warnLog.Printf("unsupported version %d", buf[0])
 		return
 	}
 	nmethods := int(buf[1])
 	if nmethods == 0 || nmethods > 255 {
-		log.Println("bad nmethods", nmethods)
+		warnLog.Printf("bad nmethods %d", nmethods)
 		return
 	}
 	if _, err := io.ReadFull(conn, buf[:nmethods]); err != nil {
-		log.Println("read methods:", err)
+		warnLog.Printf("read methods: %v", err)
 		return
 	}
+	debugLog.Printf("client methods: %v", buf[:nmethods])
 	noAuth := user == "" || pass == ""
 	want := byte(0x02)
 	if noAuth {
@@ -121,36 +133,38 @@ func handleConn(conn net.Conn, user, pass string) {
 	if _, err := conn.Write([]byte{0x05, method}); err != nil {
 		return
 	}
+	debugLog.Printf("server selected method: 0x%02X", method)
 	if method == 0x02 {
 		if _, err := io.ReadFull(conn, buf[:2]); err != nil {
-			log.Println("auth header:", err)
+			warnLog.Printf("auth header: %v", err)
 			return
 		}
 		if buf[0] != 0x01 {
-			log.Println("bad auth version", buf[0])
+			warnLog.Printf("bad auth version %d", buf[0])
 			return
 		}
 		ulen := int(buf[1])
 		if ulen == 0 || ulen > 255 {
-			log.Println("bad ulen", ulen)
+			warnLog.Printf("bad ulen %d", ulen)
 			return
 		}
 		if _, err := io.ReadFull(conn, buf[:ulen+1]); err != nil {
-			log.Println("read uname and plen:", err)
+			warnLog.Printf("read uname and plen: %v", err)
 			return
 		}
 		uname := string(buf[:ulen])
 		plen := int(buf[ulen])
 		if plen == 0 || plen > 255 {
-			log.Println("bad plen", plen)
+			warnLog.Printf("bad plen %d", plen)
 			return
 		}
 		if _, err := io.ReadFull(conn, buf[:plen]); err != nil {
-			log.Println("read passwd:", err)
+			warnLog.Printf("read passwd: %v", err)
 			return
 		}
 		passwd := string(buf[:plen])
 		if uname != user || passwd != pass {
+			warnLog.Printf("authentication failed for user %s", uname)
 			conn.Write([]byte{0x01, 0x01})
 			return
 		}
@@ -159,7 +173,7 @@ func handleConn(conn net.Conn, user, pass string) {
 		}
 	}
 	if _, err := io.ReadFull(conn, buf[:4]); err != nil {
-		log.Println("read request header:", err)
+		warnLog.Printf("read request header: %v", err)
 		return
 	}
 	if buf[0] != 0x05 {
@@ -200,8 +214,10 @@ func handleConn(conn net.Conn, user, pass string) {
 	}
 	port := int(buf[0])<<8 | int(buf[1])
 	dest := net.JoinHostPort(host, strconv.Itoa(port))
+	debugLog.Printf("connect request to %s", dest)
 	remote, err := net.Dial("tcp", dest)
 	if err != nil {
+		warnLog.Printf("connect to %s failed: %v", dest, err)
 		conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}
@@ -219,6 +235,7 @@ func handleConn(conn net.Conn, user, pass string) {
 	if _, err := conn.Write(resp); err != nil {
 		return
 	}
+	debugLog.Printf("server responded with %v", resp)
 	go io.Copy(remote, conn)
 	io.Copy(conn, remote)
 }
