@@ -344,19 +344,22 @@ func connectHop(prev net.Conn, hop Hop, host string, port int) (net.Conn, error)
 		conn = prev
 	}
 	buf := make([]byte, 512)
-	method := byte(0x00)
-	if hop.Username != "" || hop.Password != "" {
-		method = 0x02
+	methods := []byte{0x00}
+	wantAuth := hop.Username != "" || hop.Password != ""
+	if wantAuth {
+		methods = append(methods, 0x02)
 	}
-	if _, err := conn.Write([]byte{0x05, 0x01, method}); err != nil {
+	req := append([]byte{0x05, byte(len(methods))}, methods...)
+	if _, err := conn.Write(req); err != nil {
 		return nil, err
 	}
 	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
 		return nil, err
 	}
-	if buf[0] != 0x05 || buf[1] != method {
+	if buf[0] != 0x05 {
 		return nil, fmt.Errorf("bad method response")
 	}
+	method := buf[1]
 	if method == 0x02 {
 		u := []byte(hop.Username)
 		p := []byte(hop.Password)
@@ -373,12 +376,14 @@ func connectHop(prev net.Conn, hop Hop, host string, port int) (net.Conn, error)
 		if buf[1] != 0x00 {
 			return nil, fmt.Errorf("auth failed for hop %s", hop.Name)
 		}
+	} else if method != 0x00 {
+		return nil, fmt.Errorf("bad method response")
 	}
 	atyp, addrBytes, err := encodeAddr(host)
 	if err != nil {
 		return nil, err
 	}
-	req := []byte{0x05, 0x01, 0x00, atyp}
+	req = []byte{0x05, 0x01, 0x00, atyp}
 	req = append(req, addrBytes...)
 	req = append(req, byte(port>>8), byte(port))
 	if _, err := conn.Write(req); err != nil {
