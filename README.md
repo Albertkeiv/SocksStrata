@@ -1,30 +1,39 @@
 # SocksStrata
 
 Simple SOCKS5 proxy server written in Go. It implements the CONNECT command
-and supports optional username/password authentication.
+and supports optional username/password authentication with optional upstream
+proxy chaining.
 
 ## Configuration
 
-Configuration is stored in a YAML file with the following keys:
+Configuration is stored in a YAML file with two sections:
 
-| Key | Description |
-| --- | --- |
-| `bind` | Address the proxy listens on. |
-| `port` | Port number for incoming connections. |
-| `username` | Optional username required for clients. |
-| `password` | Optional password required for clients. |
-| `log_level` | Minimum log level (`debug`, `info`, `warn`). |
-| `log_format` | Log output format (`text` or `json`). |
+* **general** – listener and logging settings
+* **chains** – list of user credentials and their proxy chains
 
-Omit `username` and `password` to allow connections without authentication:
+Each entry in `chains` defines the username/password a client must supply
+and a sequence of upstream SOCKS5 proxies (hops) through which traffic is
+forwarded. If `chains` is empty, authentication is not required and
+connections are made directly.
+
+Example configuration:
 
 ```
-bind: "0.0.0.0"
-port: 1080
-username: "user"
-password: "pass"
-log_level: "info"
-log_format: "text"
+general:
+  bind: "0.0.0.0"
+  port: 1080
+  log_level: "info"
+  log_format: "text"
+
+chains:
+  - username: "user"
+    password: "pass"
+    chain:
+      - name: "proxy1"
+        username: "puser"
+        password: "ppass"
+        host: "proxy.example"
+        port: 1080
 ```
 
 ## Usage

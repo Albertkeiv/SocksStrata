@@ -1,6 +1,15 @@
-bind: "0.0.0.0"
-port: 1080
-username: "user"
-password: "pass"
-log_level: "info"
-log_format: "text"
+general:
+  bind: "0.0.0.0"
+  port: 1080
+  log_level: "info"
+  log_format: "text"
+
+chains:
+  - username: "user"
+    password: "pass"
+    chain:
+      - name: "proxy1"
+        username: "puser"
+        password: "ppass"
+        host: "proxy.example"
+        port: 1080

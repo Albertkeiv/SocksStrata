@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 type logger interface {
@@ -44,13 +44,30 @@ var (
 	debugLog logger
 )
 
+type General struct {
+	Bind      string `yaml:"bind"`
+	Port      int    `yaml:"port"`
+	LogLevel  string `yaml:"log_level"`
+	LogFormat string `yaml:"log_format"`
+}
+
+type Hop struct {
+	Name     string `yaml:"name"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+}
+
+type UserChain struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+	Chain    []Hop  `yaml:"chain"`
+}
+
 type Config struct {
-	Bind      string
-	Port      int
-	Username  string
-	Password  string
-	LogLevel  string
-	LogFormat string
+	General General     `yaml:"general"`
+	Chains  []UserChain `yaml:"chains"`
 }
 
 var configPath = flag.String("config", "config.yaml", "path to config file")
@@ -60,40 +77,15 @@ func loadConfig(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	cfg := Config{LogLevel: "info", LogFormat: "text"}
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		value := strings.Trim(strings.TrimSpace(parts[1]), "\"'")
-		switch key {
-		case "bind":
-			cfg.Bind = value
-		case "port":
-			p, err := strconv.Atoi(value)
-			if err != nil {
-				return Config{}, err
-			}
-			cfg.Port = p
-		case "username":
-			cfg.Username = value
-		case "password":
-			cfg.Password = value
-		case "log_level":
-			cfg.LogLevel = value
-		case "log_format":
-			cfg.LogFormat = value
-		}
-	}
-	if err := scanner.Err(); err != nil {
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, err
+	}
+	if cfg.General.LogLevel == "" {
+		cfg.General.LogLevel = "info"
+	}
+	if cfg.General.LogFormat == "" {
+		cfg.General.LogFormat = "text"
 	}
 	return cfg, nil
 }
@@ -129,13 +121,17 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	initLoggers(cfg.LogLevel, cfg.LogFormat)
-	addr := net.JoinHostPort(cfg.Bind, strconv.Itoa(cfg.Port))
+	initLoggers(cfg.General.LogLevel, cfg.General.LogFormat)
+	addr := net.JoinHostPort(cfg.General.Bind, strconv.Itoa(cfg.General.Port))
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatal(err)
 	}
 	infoLog.Printf("listening on %s", addr)
+	userChains := make(map[string]UserChain)
+	for _, uc := range cfg.Chains {
+		userChains[uc.Username] = uc
+	}
 	for {
 		c, err := ln.Accept()
 		if err != nil {
@@ -147,11 +143,11 @@ func main() {
 		} else {
 			infoLog.Printf("client connected: %s", c.RemoteAddr())
 		}
-		go handleConn(c, cfg.Username, cfg.Password)
+		go handleConn(c, userChains)
 	}
 }
 
-func handleConn(conn net.Conn, user, pass string) {
+func handleConn(conn net.Conn, chains map[string]UserChain) {
 	defer conn.Close()
 	buf := make([]byte, 260)
 	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
@@ -172,7 +168,7 @@ func handleConn(conn net.Conn, user, pass string) {
 		return
 	}
 	debugLog.Printf("client methods: %v", buf[:nmethods])
-	noAuth := user == "" || pass == ""
+	noAuth := len(chains) == 0
 	want := byte(0x02)
 	if noAuth {
 		want = 0x00
@@ -192,6 +188,7 @@ func handleConn(conn net.Conn, user, pass string) {
 		return
 	}
 	debugLog.Printf("server selected method: 0x%02X", method)
+	var chain []Hop
 	if method == 0x02 {
 		if _, err := io.ReadFull(conn, buf[:2]); err != nil {
 			warnLog.Printf("auth header: %v", err)
@@ -221,11 +218,13 @@ func handleConn(conn net.Conn, user, pass string) {
 			return
 		}
 		passwd := string(buf[:plen])
-		if uname != user || passwd != pass {
+		uc, ok := chains[uname]
+		if !ok || uc.Password != passwd {
 			warnLog.Printf("authentication failed for user %s", uname)
 			conn.Write([]byte{0x01, 0x01})
 			return
 		}
+		chain = uc.Chain
 		if _, err := conn.Write([]byte{0x01, 0x00}); err != nil {
 			return
 		}
@@ -273,7 +272,13 @@ func handleConn(conn net.Conn, user, pass string) {
 	port := int(buf[0])<<8 | int(buf[1])
 	dest := net.JoinHostPort(host, strconv.Itoa(port))
 	debugLog.Printf("connect request to %s", dest)
-	remote, err := net.Dial("tcp", dest)
+	var remote net.Conn
+	var err error
+	if len(chain) > 0 {
+		remote, err = dialChain(chain, host, port)
+	} else {
+		remote, err = net.Dial("tcp", dest)
+	}
 	if err != nil {
 		warnLog.Printf("connect to %s failed: %v", dest, err)
 		conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
@@ -296,4 +301,124 @@ func handleConn(conn net.Conn, user, pass string) {
 	debugLog.Printf("server responded with %v", resp)
 	go io.Copy(remote, conn)
 	io.Copy(conn, remote)
+}
+
+func dialChain(chain []Hop, finalHost string, finalPort int) (net.Conn, error) {
+	var conn net.Conn
+	var err error
+	targetHost := finalHost
+	targetPort := finalPort
+	for i := 0; i < len(chain); i++ {
+		hop := chain[i]
+		if i+1 < len(chain) {
+			next := chain[i+1]
+			targetHost = next.Host
+			targetPort = next.Port
+		} else {
+			targetHost = finalHost
+			targetPort = finalPort
+		}
+		conn, err = connectHop(conn, hop, targetHost, targetPort)
+		if err != nil {
+			if conn != nil {
+				conn.Close()
+			}
+			return nil, err
+		}
+	}
+	return conn, nil
+}
+
+func connectHop(prev net.Conn, hop Hop, host string, port int) (net.Conn, error) {
+	addr := net.JoinHostPort(hop.Host, strconv.Itoa(hop.Port))
+	var conn net.Conn
+	var err error
+	if prev == nil {
+		conn, err = net.Dial("tcp", addr)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		conn = prev
+	}
+	buf := make([]byte, 512)
+	method := byte(0x00)
+	if hop.Username != "" || hop.Password != "" {
+		method = 0x02
+	}
+	if _, err := conn.Write([]byte{0x05, 0x01, method}); err != nil {
+		return nil, err
+	}
+	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
+		return nil, err
+	}
+	if buf[0] != 0x05 || buf[1] != method {
+		return nil, fmt.Errorf("bad method response")
+	}
+	if method == 0x02 {
+		u := []byte(hop.Username)
+		p := []byte(hop.Password)
+		req := []byte{0x01, byte(len(u))}
+		req = append(req, u...)
+		req = append(req, byte(len(p)))
+		req = append(req, p...)
+		if _, err := conn.Write(req); err != nil {
+			return nil, err
+		}
+		if _, err := io.ReadFull(conn, buf[:2]); err != nil {
+			return nil, err
+		}
+		if buf[1] != 0x00 {
+			return nil, fmt.Errorf("auth failed for hop %s", hop.Name)
+		}
+	}
+	atyp, addrBytes, err := encodeAddr(host)
+	if err != nil {
+		return nil, err
+	}
+	req := []byte{0x05, 0x01, 0x00, atyp}
+	req = append(req, addrBytes...)
+	req = append(req, byte(port>>8), byte(port))
+	if _, err := conn.Write(req); err != nil {
+		return nil, err
+	}
+	if _, err := io.ReadFull(conn, buf[:4]); err != nil {
+		return nil, err
+	}
+	if buf[1] != 0x00 {
+		return nil, fmt.Errorf("connect failed on hop %s", hop.Name)
+	}
+	var skip int
+	switch buf[3] {
+	case 0x01:
+		skip = 4
+	case 0x03:
+		if _, err := io.ReadFull(conn, buf[:1]); err != nil {
+			return nil, err
+		}
+		skip = int(buf[0])
+	case 0x04:
+		skip = 16
+	default:
+		return nil, fmt.Errorf("bad atyp %d", buf[3])
+	}
+	if _, err := io.ReadFull(conn, buf[:skip+2]); err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
+func encodeAddr(host string) (byte, []byte, error) {
+	if ip := net.ParseIP(host); ip != nil {
+		if ip4 := ip.To4(); ip4 != nil {
+			return 0x01, ip4, nil
+		}
+		return 0x04, ip.To16(), nil
+	}
+	if len(host) > 255 {
+		return 0, nil, fmt.Errorf("host too long")
+	}
+	b := []byte(host)
+	res := append([]byte{byte(len(b))}, b...)
+	return 0x03, res, nil
 }
