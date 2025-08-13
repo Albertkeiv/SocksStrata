@@ -3,26 +3,54 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
+type logger interface {
+	Printf(string, ...interface{})
+}
+
+type nopLogger struct{}
+
+func (nopLogger) Printf(string, ...interface{}) {}
+
+type jsonLogger struct {
+	level string
+}
+
+func (l jsonLogger) Printf(format string, v ...interface{}) {
+	msg := fmt.Sprintf(format, v...)
+	m := map[string]string{
+		"level": l.level,
+		"time":  time.Now().Format(time.RFC3339),
+		"msg":   msg,
+	}
+	b, _ := json.Marshal(m)
+	fmt.Println(string(b))
+}
+
 var (
-	infoLog  = log.New(os.Stdout, "INFO: ", log.LstdFlags)
-	warnLog  = log.New(os.Stdout, "WARNING: ", log.LstdFlags)
-	debugLog = log.New(os.Stdout, "DEBUG: ", log.LstdFlags)
+	infoLog  logger
+	warnLog  logger
+	debugLog logger
 )
 
 type Config struct {
-	Bind     string
-	Port     int
-	Username string
-	Password string
+	Bind      string
+	Port      int
+	Username  string
+	Password  string
+	LogLevel  string
+	LogFormat string
 }
 
 var configPath = flag.String("config", "config.yaml", "path to config file")
@@ -32,7 +60,7 @@ func loadConfig(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	var cfg Config
+	cfg := Config{LogLevel: "info", LogFormat: "text"}
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -58,6 +86,10 @@ func loadConfig(path string) (Config, error) {
 			cfg.Username = value
 		case "password":
 			cfg.Password = value
+		case "log_level":
+			cfg.LogLevel = value
+		case "log_format":
+			cfg.LogFormat = value
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -66,12 +98,38 @@ func loadConfig(path string) (Config, error) {
 	return cfg, nil
 }
 
+func initLoggers(level, format string) {
+	lvl := strings.ToLower(level)
+	fmtType := strings.ToLower(format)
+	switch fmtType {
+	case "json":
+		infoLog = jsonLogger{level: "info"}
+		warnLog = jsonLogger{level: "warn"}
+		debugLog = jsonLogger{level: "debug"}
+	default:
+		infoLog = log.New(os.Stdout, "INFO: ", log.LstdFlags)
+		warnLog = log.New(os.Stdout, "WARNING: ", log.LstdFlags)
+		debugLog = log.New(os.Stdout, "DEBUG: ", log.LstdFlags)
+	}
+	switch lvl {
+	case "debug":
+	case "info":
+		debugLog = nopLogger{}
+	case "warn", "warning":
+		infoLog = nopLogger{}
+		debugLog = nopLogger{}
+	default:
+		debugLog = nopLogger{}
+	}
+}
+
 func main() {
 	flag.Parse()
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		log.Fatal(err)
 	}
+	initLoggers(cfg.LogLevel, cfg.LogFormat)
 	addr := net.JoinHostPort(cfg.Bind, strconv.Itoa(cfg.Port))
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
