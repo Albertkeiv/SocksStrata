@@ -1,10 +1,78 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"flag"
 	"io"
 	"log"
 	"net"
+	"os"
+	"strconv"
+	"strings"
+)
+
+type Config struct {
+	Bind     string
+	Port     int
+	Username string
+	Password string
+}
+
+var configPath = flag.String("config", "config.yaml", "path to config file")
+
+func loadConfig(path string) (Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, err
+	}
+	var cfg Config
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.Trim(strings.TrimSpace(parts[1]), "\"'")
+		switch key {
+		case "bind":
+			cfg.Bind = value
+		case "port":
+			p, err := strconv.Atoi(value)
+			if err != nil {
+				return Config{}, err
+			}
+			cfg.Port = p
+		case "username":
+			cfg.Username = value
+		case "password":
+			cfg.Password = value
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func main() {
+	flag.Parse()
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	addr := net.JoinHostPort(cfg.Bind, strconv.Itoa(cfg.Port))
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("listening on %s", addr)
+=======
 	"strconv"
 )
 
@@ -27,7 +95,7 @@ func main() {
 			log.Println("accept:", err)
 			continue
 		}
-		go handleConn(c, *username, *password)
+		go handleConn(c, cfg.Username, cfg.Password)
 	}
 }
 
