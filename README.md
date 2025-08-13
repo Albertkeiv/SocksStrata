@@ -24,3 +24,11 @@ go run . -config config.yaml
 The server listens on the configured address and forwards TCP traffic after
 authentication if credentials are configured.
 
+## Logging
+
+The proxy emits structured logs with the following levels:
+
+- **INFO**: client connections, including the client's IP address.
+- **WARNING**: non-critical errors and authentication failures.
+- **DEBUG**: detailed information such as supported methods and server responses.
+
