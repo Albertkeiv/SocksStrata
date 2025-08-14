@@ -3,6 +3,7 @@ general:
   port: 1080
   log_level: "info"
   log_format: "text"
+  health_check_interval: 30s
 
 chains:
   - username: "user"

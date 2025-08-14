@@ -46,13 +46,14 @@ var (
 	debugLog logger
 )
 
-const healthCheckInterval = 30 * time.Second
+const defaultHealthCheckInterval = 30 * time.Second
 
 type General struct {
-	Bind      string `yaml:"bind"`
-	Port      int    `yaml:"port"`
-	LogLevel  string `yaml:"log_level"`
-	LogFormat string `yaml:"log_format"`
+	Bind                string        `yaml:"bind"`
+	Port                int           `yaml:"port"`
+	LogLevel            string        `yaml:"log_level"`
+	LogFormat           string        `yaml:"log_format"`
+	HealthCheckInterval time.Duration `yaml:"health_check_interval"`
 }
 
 type Proxy struct {
@@ -151,6 +152,9 @@ func loadConfig(path string) (Config, error) {
 	if cfg.General.LogFormat == "" {
 		cfg.General.LogFormat = "text"
 	}
+	if cfg.General.HealthCheckInterval == 0 {
+		cfg.General.HealthCheckInterval = defaultHealthCheckInterval
+	}
 	return cfg, nil
 }
 
@@ -221,7 +225,7 @@ func main() {
 	for _, uc := range cfg.Chains {
 		userChains[uc.Username] = uc
 	}
-	startHealthChecks(&cfg, healthCheckInterval)
+	startHealthChecks(&cfg, cfg.General.HealthCheckInterval)
 	for {
 		c, err := ln.Accept()
 		if err != nil {
