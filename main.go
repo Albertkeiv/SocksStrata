@@ -46,7 +46,10 @@ var (
 	debugLog logger
 )
 
-const defaultHealthCheckInterval = 30 * time.Second
+const (
+	defaultHealthCheckInterval = 30 * time.Second
+	proxyDialTimeout           = 5 * time.Second
+)
 
 type General struct {
 	Bind                string        `yaml:"bind"`
@@ -420,7 +423,7 @@ func dialChain(chain []*Hop, finalHost string, finalPort int) (net.Conn, error) 
 				nextHost = next.Host
 				nextPort = next.Port
 			}
-			conn, err = connectProxy(conn, combo[i], nextHost, nextPort)
+			conn, err = connectProxy(conn, combo[i], nextHost, nextPort, proxyDialTimeout)
 			if err != nil {
 				combo[i].alive.Store(false)
 				if conn != nil {
@@ -442,14 +445,17 @@ func dialChain(chain []*Hop, finalHost string, finalPort int) (net.Conn, error) 
 	return nil, fmt.Errorf("no valid proxy chain")
 }
 
-func connectProxy(prev net.Conn, hop *Proxy, host string, port int) (net.Conn, error) {
+func connectProxy(prev net.Conn, hop *Proxy, host string, port int, timeout time.Duration) (net.Conn, error) {
 	addr := net.JoinHostPort(hop.Host, strconv.Itoa(hop.Port))
 	var conn net.Conn
 	var err error
 	if prev == nil {
 		debugLog.Printf("dialing hop %s at %s", hop.Name, addr)
-		conn, err = net.Dial("tcp", addr)
+		conn, err = net.DialTimeout("tcp", addr, timeout)
 		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				return nil, fmt.Errorf("dial to %s timed out after %s", addr, timeout)
+			}
 			return nil, err
 		}
 	} else {
@@ -530,7 +536,7 @@ func connectProxy(prev net.Conn, hop *Proxy, host string, port int) (net.Conn, e
 
 func checkProxyAlive(p *Proxy) bool {
 	addr := net.JoinHostPort(p.Host, strconv.Itoa(p.Port))
-	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	conn, err := net.DialTimeout("tcp", addr, proxyDialTimeout)
 	if err != nil {
 		return false
 	}
