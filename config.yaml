@@ -13,8 +13,15 @@ chains:
         password: "ppass"
         host: "proxy1.example"
         port: 1080
-      - name: "proxy2"
-        username: "puser2"
-        password: "ppass2"
-        host: "proxy2.example"
-        port: 1080
+      - strategy: "rr"
+        proxies:
+          - name: "proxy2"
+            username: "puser2"
+            password: "ppass2"
+            host: "proxy2.example"
+            port: 1080
+          - name: "proxy3"
+            username: "puser3"
+            password: "ppass3"
+            host: "proxy3.example"
+            port: 1080

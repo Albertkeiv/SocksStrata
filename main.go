@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -51,7 +53,7 @@ type General struct {
 	LogFormat string `yaml:"log_format"`
 }
 
-type Hop struct {
+type Proxy struct {
 	Name     string `yaml:"name"`
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
@@ -59,15 +61,69 @@ type Hop struct {
 	Port     int    `yaml:"port"`
 }
 
+type Hop struct {
+	Strategy string  `yaml:"strategy"`
+	Proxies  []Proxy `yaml:"proxies"`
+	Name     string  `yaml:"name"`
+	Username string  `yaml:"username"`
+	Password string  `yaml:"password"`
+	Host     string  `yaml:"host"`
+	Port     int     `yaml:"port"`
+	rrCount  uint32  `yaml:"-"`
+}
+
 type UserChain struct {
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
-	Chain    []Hop  `yaml:"chain"`
+	Chain    []*Hop `yaml:"chain"`
 }
 
 type Config struct {
 	General General     `yaml:"general"`
 	Chains  []UserChain `yaml:"chains"`
+}
+
+func (h *Hop) orderedProxies() []Proxy {
+	var proxies []Proxy
+	if len(h.Proxies) > 0 {
+		proxies = make([]Proxy, len(h.Proxies))
+		copy(proxies, h.Proxies)
+	} else if h.Host != "" {
+		proxies = []Proxy{{
+			Name:     h.Name,
+			Username: h.Username,
+			Password: h.Password,
+			Host:     h.Host,
+			Port:     h.Port,
+		}}
+	}
+	if len(proxies) == 0 {
+		return proxies
+	}
+	switch strings.ToLower(h.Strategy) {
+	case "random":
+		rand.Shuffle(len(proxies), func(i, j int) {
+			proxies[i], proxies[j] = proxies[j], proxies[i]
+		})
+	default:
+		idx := atomic.AddUint32(&h.rrCount, 1) - 1
+		start := int(idx % uint32(len(proxies)))
+		proxies = append(proxies[start:], proxies[:start]...)
+	}
+	return proxies
+}
+
+func generateCombos(lists [][]Proxy, depth int, current []Proxy, out *[][]Proxy) {
+	if depth == len(lists) {
+		comb := make([]Proxy, len(current))
+		copy(comb, current)
+		*out = append(*out, comb)
+		return
+	}
+	for _, p := range lists[depth] {
+		current[depth] = p
+		generateCombos(lists, depth+1, current, out)
+	}
 }
 
 var configPath = flag.String("config", "config.yaml", "path to config file")
@@ -117,6 +173,7 @@ func initLoggers(level, format string) {
 
 func main() {
 	flag.Parse()
+	rand.Seed(time.Now().UnixNano())
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		log.Fatal(err)
@@ -188,7 +245,7 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 		return
 	}
 	debugLog.Printf("server selected method: 0x%02X", method)
-	var chain []Hop
+	var chain []*Hop
 	if method == 0x02 {
 		if _, err := io.ReadFull(conn, buf[:2]); err != nil {
 			warnLog.Printf("auth header: %v", err)
@@ -306,35 +363,48 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 	io.Copy(conn, remote)
 }
 
-func dialChain(chain []Hop, finalHost string, finalPort int) (net.Conn, error) {
-	var conn net.Conn
-	var err error
-	for i := 0; i < len(chain); i++ {
-		hop := chain[i]
-
-		// Determine the next address this hop should connect to. By
-		// default the last hop targets the final destination.
-		nextHost := finalHost
-		nextPort := finalPort
-		if i+1 < len(chain) {
-			nextHop := chain[i+1]
-			nextHost = nextHop.Host
-			nextPort = nextHop.Port
-		}
-
-		conn, err = connectHop(conn, hop, nextHost, nextPort)
-		if err != nil {
-			if conn != nil {
-				conn.Close()
-			}
-			return nil, fmt.Errorf("hop %s: %w", hop.Name, err)
-		}
-		debugLog.Printf("connected to hop %s targeting %s:%d", hop.Name, nextHost, nextPort)
+func dialChain(chain []*Hop, finalHost string, finalPort int) (net.Conn, error) {
+	lists := make([][]Proxy, len(chain))
+	for i, hop := range chain {
+		lists[i] = hop.orderedProxies()
 	}
-	return conn, nil
+	combos := [][]Proxy{}
+	generateCombos(lists, 0, make([]Proxy, len(chain)), &combos)
+	var lastErr error
+	for _, combo := range combos {
+		var conn net.Conn
+		var err error
+		success := true
+		for i := range combo {
+			nextHost := finalHost
+			nextPort := finalPort
+			if i+1 < len(combo) {
+				next := combo[i+1]
+				nextHost = next.Host
+				nextPort = next.Port
+			}
+			conn, err = connectProxy(conn, combo[i], nextHost, nextPort)
+			if err != nil {
+				if conn != nil {
+					conn.Close()
+				}
+				lastErr = fmt.Errorf("hop %s: %w", combo[i].Name, err)
+				success = false
+				break
+			}
+			debugLog.Printf("connected to hop %s targeting %s:%d", combo[i].Name, nextHost, nextPort)
+		}
+		if success {
+			return conn, nil
+		}
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("no valid proxy chain")
 }
 
-func connectHop(prev net.Conn, hop Hop, host string, port int) (net.Conn, error) {
+func connectProxy(prev net.Conn, hop Proxy, host string, port int) (net.Conn, error) {
 	addr := net.JoinHostPort(hop.Host, strconv.Itoa(hop.Port))
 	var conn net.Conn
 	var err error
