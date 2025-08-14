@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -47,16 +48,18 @@ var (
 )
 
 const (
-	defaultHealthCheckInterval = 30 * time.Second
-	proxyDialTimeout           = 5 * time.Second
+	defaultHealthCheckInterval  = 30 * time.Second
+	defaultChainCleanupInterval = 10 * time.Minute
+	proxyDialTimeout            = 5 * time.Second
 )
 
 type General struct {
-	Bind                string        `yaml:"bind"`
-	Port                int           `yaml:"port"`
-	LogLevel            string        `yaml:"log_level"`
-	LogFormat           string        `yaml:"log_format"`
-	HealthCheckInterval time.Duration `yaml:"health_check_interval"`
+	Bind                 string        `yaml:"bind"`
+	Port                 int           `yaml:"port"`
+	LogLevel             string        `yaml:"log_level"`
+	LogFormat            string        `yaml:"log_format"`
+	HealthCheckInterval  time.Duration `yaml:"health_check_interval"`
+	ChainCleanupInterval time.Duration `yaml:"chain_cleanup_interval"`
 }
 
 type Proxy struct {
@@ -89,6 +92,16 @@ type Config struct {
 	General General     `yaml:"general"`
 	Chains  []UserChain `yaml:"chains"`
 }
+
+type cachedChain struct {
+	combo    []*Proxy
+	lastUsed time.Time
+}
+
+var (
+	chainCache   = make(map[string]*cachedChain)
+	chainCacheMu sync.RWMutex
+)
 
 func (h *Hop) orderedProxies() []*Proxy {
 	var proxies []*Proxy
@@ -125,19 +138,6 @@ func (h *Hop) orderedProxies() []*Proxy {
 	return proxies
 }
 
-func generateCombos(lists [][]*Proxy, depth int, current []*Proxy, out *[][]*Proxy) {
-	if depth == len(lists) {
-		comb := make([]*Proxy, len(current))
-		copy(comb, current)
-		*out = append(*out, comb)
-		return
-	}
-	for _, p := range lists[depth] {
-		current[depth] = p
-		generateCombos(lists, depth+1, current, out)
-	}
-}
-
 var configPath = flag.String("config", "config.yaml", "path to config file")
 
 func loadConfig(path string) (Config, error) {
@@ -157,6 +157,9 @@ func loadConfig(path string) (Config, error) {
 	}
 	if cfg.General.HealthCheckInterval == 0 {
 		cfg.General.HealthCheckInterval = defaultHealthCheckInterval
+	}
+	if cfg.General.ChainCleanupInterval == 0 {
+		cfg.General.ChainCleanupInterval = defaultChainCleanupInterval
 	}
 	return cfg, nil
 }
@@ -229,6 +232,7 @@ func main() {
 		userChains[uc.Username] = uc
 	}
 	startHealthChecks(&cfg, cfg.General.HealthCheckInterval)
+	startChainCacheCleanup(cfg.General.ChainCleanupInterval)
 	for {
 		c, err := ln.Accept()
 		if err != nil {
@@ -404,40 +408,78 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 }
 
 func dialChain(chain []*Hop, finalHost string, finalPort int) (net.Conn, error) {
-	lists := make([][]*Proxy, len(chain))
-	for i, hop := range chain {
-		lists[i] = hop.orderedProxies()
-	}
-	combos := [][]*Proxy{}
-	generateCombos(lists, 0, make([]*Proxy, len(chain)), &combos)
-	var lastErr error
-	for _, combo := range combos {
-		var conn net.Conn
-		var err error
-		success := true
-		for i := range combo {
-			nextHost := finalHost
-			nextPort := finalPort
-			if i+1 < len(combo) {
-				next := combo[i+1]
-				nextHost = next.Host
-				nextPort = next.Port
-			}
-			conn, err = connectProxy(conn, combo[i], nextHost, nextPort, proxyDialTimeout)
-			if err != nil {
-				combo[i].alive.Store(false)
-				if conn != nil {
-					conn.Close()
-				}
-				lastErr = fmt.Errorf("hop %s: %w", combo[i].Name, err)
-				success = false
-				break
-			}
-			debugLog.Printf("connected to hop %s targeting %s:%d", combo[i].Name, nextHost, nextPort)
+	key := chainKey(chain)
+	chainCacheMu.RLock()
+	cached := chainCache[key]
+	chainCacheMu.RUnlock()
+	if cached != nil {
+		if conn, err := connectThrough(cached.combo, finalHost, finalPort); err == nil {
+			chainCacheMu.Lock()
+			cached.lastUsed = time.Now()
+			chainCacheMu.Unlock()
+			return conn, nil
+		} else {
+			chainCacheMu.Lock()
+			delete(chainCache, key)
+			chainCacheMu.Unlock()
 		}
-		if success {
+	}
+	current := make([]*Proxy, len(chain))
+	conn, err := dialChainRecursive(chain, 0, current, finalHost, finalPort)
+	if err == nil {
+		combo := append([]*Proxy(nil), current...)
+		chainCacheMu.Lock()
+		chainCache[key] = &cachedChain{combo: combo, lastUsed: time.Now()}
+		chainCacheMu.Unlock()
+	}
+	return conn, err
+}
+
+func chainKey(chain []*Hop) string {
+	parts := make([]string, len(chain))
+	for i, hop := range chain {
+		parts[i] = fmt.Sprintf("%p", hop)
+	}
+	return strings.Join(parts, "-")
+}
+
+func connectThrough(combo []*Proxy, finalHost string, finalPort int) (net.Conn, error) {
+	var conn net.Conn
+	var err error
+	for i := range combo {
+		nextHost := finalHost
+		nextPort := finalPort
+		if i+1 < len(combo) {
+			next := combo[i+1]
+			nextHost = next.Host
+			nextPort = next.Port
+		}
+		conn, err = connectProxy(conn, combo[i], nextHost, nextPort, proxyDialTimeout)
+		if err != nil {
+			combo[i].alive.Store(false)
+			if conn != nil {
+				conn.Close()
+			}
+			return nil, fmt.Errorf("hop %s: %w", combo[i].Name, err)
+		}
+		debugLog.Printf("connected to hop %s targeting %s:%d", combo[i].Name, nextHost, nextPort)
+	}
+	return conn, nil
+}
+
+func dialChainRecursive(chain []*Hop, depth int, current []*Proxy, finalHost string, finalPort int) (net.Conn, error) {
+	if depth == len(chain) {
+		return connectThrough(current, finalHost, finalPort)
+	}
+	proxies := chain[depth].orderedProxies()
+	var lastErr error
+	for _, p := range proxies {
+		current[depth] = p
+		conn, err := dialChainRecursive(chain, depth+1, current, finalHost, finalPort)
+		if err == nil {
 			return conn, nil
 		}
+		lastErr = err
 	}
 	if lastErr != nil {
 		return nil, lastErr
@@ -568,6 +610,26 @@ func startHealthChecks(cfg *Config, interval time.Duration) {
 					p.alive.Store(alive)
 				}
 			}
+		}
+	}()
+}
+
+func startChainCacheCleanup(ttl time.Duration) {
+	if ttl <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(ttl)
+		defer ticker.Stop()
+		for range ticker.C {
+			now := time.Now()
+			chainCacheMu.Lock()
+			for k, v := range chainCache {
+				if now.Sub(v.lastUsed) > ttl {
+					delete(chainCache, k)
+				}
+			}
+			chainCacheMu.Unlock()
 		}
 	}()
 }
