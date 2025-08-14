@@ -12,11 +12,13 @@ Configuration is stored in a YAML file with two sections:
 * **chains** – list of user credentials and their proxy chains
 
 Each entry in `chains` defines the username/password a client must supply
-and an ordered sequence of upstream SOCKS5 proxies (hops) through which
-traffic is forwarded. Hops are traversed in the order they are listed. If
-any hop in the chain cannot be reached, the client receives an error.
-If `chains` is empty, authentication is not required and connections are
-made directly.
+and an ordered sequence of hops. A hop may specify a single upstream
+SOCKS5 proxy directly or provide multiple proxies with a load-balancing
+strategy. When multiple proxies are listed, they are tried according to
+the selected strategy until a connection succeeds. Supported strategies
+are `rr` (round-robin) and `random`. Hops are traversed in the order they
+are listed. If `chains` is empty, authentication is not required and
+connections are made directly.
 
 Example configuration:
 
@@ -36,11 +38,18 @@ chains:
         password: "ppass"
         host: "proxy1.example"
         port: 1080
-      - name: "proxy2"
-        username: "puser2"
-        password: "ppass2"
-        host: "proxy2.example"
-        port: 1080
+      - strategy: "rr"
+        proxies:
+          - name: "proxy2"
+            username: "puser2"
+            password: "ppass2"
+            host: "proxy2.example"
+            port: 1080
+          - name: "proxy3"
+            username: "puser3"
+            password: "ppass3"
+            host: "proxy3.example"
+            port: 1080
 ```
 
 ## Usage
