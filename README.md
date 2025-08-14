@@ -105,6 +105,20 @@ Proxy definitions used either directly in a hop or within a `proxies` list inclu
 
 The server performs health checks on all defined proxies at the interval specified by `health_check_interval`. When a proxy fails a check it is temporarily excluded from rotation until it becomes reachable again.
 
+## Building
+
+To compile the proxy as a regular binary:
+
+```bash
+go build -o socksstrata
+```
+
+To produce a statically linked binary that can be moved between machines of the same architecture:
+
+```bash
+CGO_ENABLED=0 go build -ldflags "-s -w" -o socksstrata-static
+```
+
 ## Usage
 
 ```
