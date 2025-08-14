@@ -46,6 +46,8 @@ var (
 	debugLog logger
 )
 
+const healthCheckInterval = 30 * time.Second
+
 type General struct {
 	Bind      string `yaml:"bind"`
 	Port      int    `yaml:"port"`
@@ -54,22 +56,23 @@ type General struct {
 }
 
 type Proxy struct {
-	Name     string `yaml:"name"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
+	Name     string      `yaml:"name"`
+	Username string      `yaml:"username"`
+	Password string      `yaml:"password"`
+	Host     string      `yaml:"host"`
+	Port     int         `yaml:"port"`
+	alive    atomic.Bool `yaml:"-"`
 }
 
 type Hop struct {
-	Strategy string  `yaml:"strategy"`
-	Proxies  []Proxy `yaml:"proxies"`
-	Name     string  `yaml:"name"`
-	Username string  `yaml:"username"`
-	Password string  `yaml:"password"`
-	Host     string  `yaml:"host"`
-	Port     int     `yaml:"port"`
-	rrCount  uint32  `yaml:"-"`
+	Strategy string   `yaml:"strategy"`
+	Proxies  []*Proxy `yaml:"proxies"`
+	Name     string   `yaml:"name"`
+	Username string   `yaml:"username"`
+	Password string   `yaml:"password"`
+	Host     string   `yaml:"host"`
+	Port     int      `yaml:"port"`
+	rrCount  uint32   `yaml:"-"`
 }
 
 type UserChain struct {
@@ -83,19 +86,24 @@ type Config struct {
 	Chains  []UserChain `yaml:"chains"`
 }
 
-func (h *Hop) orderedProxies() []Proxy {
-	var proxies []Proxy
+func (h *Hop) orderedProxies() []*Proxy {
+	var proxies []*Proxy
 	if len(h.Proxies) > 0 {
-		proxies = make([]Proxy, len(h.Proxies))
-		copy(proxies, h.Proxies)
+		for _, p := range h.Proxies {
+			if p.alive.Load() {
+				proxies = append(proxies, p)
+			}
+		}
 	} else if h.Host != "" {
-		proxies = []Proxy{{
+		p := &Proxy{
 			Name:     h.Name,
 			Username: h.Username,
 			Password: h.Password,
 			Host:     h.Host,
 			Port:     h.Port,
-		}}
+		}
+		p.alive.Store(true)
+		proxies = []*Proxy{p}
 	}
 	if len(proxies) == 0 {
 		return proxies
@@ -113,9 +121,9 @@ func (h *Hop) orderedProxies() []Proxy {
 	return proxies
 }
 
-func generateCombos(lists [][]Proxy, depth int, current []Proxy, out *[][]Proxy) {
+func generateCombos(lists [][]*Proxy, depth int, current []*Proxy, out *[][]*Proxy) {
 	if depth == len(lists) {
-		comb := make([]Proxy, len(current))
+		comb := make([]*Proxy, len(current))
 		copy(comb, current)
 		*out = append(*out, comb)
 		return
@@ -144,6 +152,29 @@ func loadConfig(path string) (Config, error) {
 		cfg.General.LogFormat = "text"
 	}
 	return cfg, nil
+}
+
+func initProxies(cfg *Config) {
+	for i := range cfg.Chains {
+		chain := &cfg.Chains[i]
+		for j := range chain.Chain {
+			hop := chain.Chain[j]
+			if len(hop.Proxies) == 0 && hop.Host != "" {
+				p := &Proxy{
+					Name:     hop.Name,
+					Username: hop.Username,
+					Password: hop.Password,
+					Host:     hop.Host,
+					Port:     hop.Port,
+				}
+				p.alive.Store(true)
+				hop.Proxies = []*Proxy{p}
+			}
+			for _, p := range hop.Proxies {
+				p.alive.Store(true)
+			}
+		}
+	}
 }
 
 func initLoggers(level, format string) {
@@ -178,6 +209,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	initProxies(&cfg)
 	initLoggers(cfg.General.LogLevel, cfg.General.LogFormat)
 	addr := net.JoinHostPort(cfg.General.Bind, strconv.Itoa(cfg.General.Port))
 	ln, err := net.Listen("tcp", addr)
@@ -189,6 +221,7 @@ func main() {
 	for _, uc := range cfg.Chains {
 		userChains[uc.Username] = uc
 	}
+	startHealthChecks(&cfg, healthCheckInterval)
 	for {
 		c, err := ln.Accept()
 		if err != nil {
@@ -364,12 +397,12 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 }
 
 func dialChain(chain []*Hop, finalHost string, finalPort int) (net.Conn, error) {
-	lists := make([][]Proxy, len(chain))
+	lists := make([][]*Proxy, len(chain))
 	for i, hop := range chain {
 		lists[i] = hop.orderedProxies()
 	}
-	combos := [][]Proxy{}
-	generateCombos(lists, 0, make([]Proxy, len(chain)), &combos)
+	combos := [][]*Proxy{}
+	generateCombos(lists, 0, make([]*Proxy, len(chain)), &combos)
 	var lastErr error
 	for _, combo := range combos {
 		var conn net.Conn
@@ -385,6 +418,7 @@ func dialChain(chain []*Hop, finalHost string, finalPort int) (net.Conn, error) 
 			}
 			conn, err = connectProxy(conn, combo[i], nextHost, nextPort)
 			if err != nil {
+				combo[i].alive.Store(false)
 				if conn != nil {
 					conn.Close()
 				}
@@ -404,7 +438,7 @@ func dialChain(chain []*Hop, finalHost string, finalPort int) (net.Conn, error) 
 	return nil, fmt.Errorf("no valid proxy chain")
 }
 
-func connectProxy(prev net.Conn, hop Proxy, host string, port int) (net.Conn, error) {
+func connectProxy(prev net.Conn, hop *Proxy, host string, port int) (net.Conn, error) {
 	addr := net.JoinHostPort(hop.Host, strconv.Itoa(hop.Port))
 	var conn net.Conn
 	var err error
@@ -488,6 +522,44 @@ func connectProxy(prev net.Conn, hop Proxy, host string, port int) (net.Conn, er
 	}
 	debugLog.Printf("hop %s connection established", hop.Name)
 	return conn, nil
+}
+
+func checkProxyAlive(p *Proxy) bool {
+	addr := net.JoinHostPort(p.Host, strconv.Itoa(p.Port))
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+func startHealthChecks(cfg *Config, interval time.Duration) {
+	proxies := []*Proxy{}
+	for i := range cfg.Chains {
+		for j := range cfg.Chains[i].Chain {
+			proxies = append(proxies, cfg.Chains[i].Chain[j].Proxies...)
+		}
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			<-ticker.C
+			for _, p := range proxies {
+				alive := checkProxyAlive(p)
+				old := p.alive.Load()
+				if alive != old {
+					if alive {
+						infoLog.Printf("proxy %s recovered", p.Name)
+					} else {
+						warnLog.Printf("proxy %s marked dead", p.Name)
+					}
+					p.alive.Store(alive)
+				}
+			}
+		}
+	}()
 }
 
 func encodeAddr(host string) (byte, []byte, error) {
