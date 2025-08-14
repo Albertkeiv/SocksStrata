@@ -52,9 +52,58 @@ chains:
             host: "proxy3.example"
             port: 1080
 ```
+### Configuration Parameters
 
-`health_check_interval` controls how often upstream proxies are probed to
-determine their availability. If omitted, it defaults to `30s`.
+The table below describes all fields available in the YAML configuration.
+
+#### `general`
+
+| Field | Description | Values | Default |
+| ----- | ----------- | ------ | ------- |
+| `bind` | Address for the local listener. | Any IP address or hostname. | `0.0.0.0` |
+| `port` | TCP port for the listener. | 1–65535. | `1080` |
+| `log_level` | Logging verbosity. | `debug`, `info`, `warn`/`warning`. | `info` |
+| `log_format` | Format of log output. | `text`, `json`. | `text` |
+| `health_check_interval` | How often to probe upstream proxies. Accepts Go duration strings such as `30s` or `1m`. | Any positive duration. | `30s` |
+
+#### `chains`
+
+List of user definitions. Each entry requires:
+
+| Field | Description |
+| ----- | ----------- |
+| `username` | Username clients must provide. |
+| `password` | Password for the user. |
+| `chain` | Ordered list of hops executed after authentication. If the list is empty, the connection is made directly. |
+
+Authentication is optional; if `chains` is omitted or empty, the server accepts unauthenticated connections and connects directly.
+
+#### Hop fields
+
+Each item inside a user's `chain` may take one of two forms:
+
+1. **Single proxy hop** – specify `name`, `username`, `password`, `host`, and `port` directly.
+2. **Proxy group** – provide a `proxies` array containing multiple proxy definitions and optionally a `strategy`.
+
+Additional hop parameters:
+
+| Field | Description | Values | Default |
+| ----- | ----------- | ------ | ------- |
+| `strategy` | Order in which proxies from `proxies` are attempted. | `rr` for round‑robin, `random` for random selection. | `rr` |
+
+#### Proxy fields
+
+Proxy definitions used either directly in a hop or within a `proxies` list include:
+
+| Field | Description |
+| ----- | ----------- |
+| `name` | Optional human‑readable label. |
+| `username` | Username for upstream proxy authentication. |
+| `password` | Password for upstream proxy authentication. |
+| `host` | Hostname or IP of the upstream proxy. |
+| `port` | TCP port of the upstream proxy. |
+
+The server performs health checks on all defined proxies at the interval specified by `health_check_interval`. When a proxy fails a check it is temporarily excluded from rotation until it becomes reachable again.
 
 ## Usage
 
