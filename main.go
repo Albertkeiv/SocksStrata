@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -48,18 +49,22 @@ var (
 )
 
 const (
-	defaultHealthCheckInterval  = 30 * time.Second
-	defaultChainCleanupInterval = 10 * time.Minute
-	proxyDialTimeout            = 5 * time.Second
+	defaultHealthCheckInterval   = 30 * time.Second
+	defaultChainCleanupInterval  = 10 * time.Minute
+	defaultHealthCheckTimeout    = 5 * time.Second
+	defaultHealthCheckConcurrent = 10
+	proxyDialTimeout             = 5 * time.Second
 )
 
 type General struct {
-	Bind                 string        `yaml:"bind"`
-	Port                 int           `yaml:"port"`
-	LogLevel             string        `yaml:"log_level"`
-	LogFormat            string        `yaml:"log_format"`
-	HealthCheckInterval  time.Duration `yaml:"health_check_interval"`
-	ChainCleanupInterval time.Duration `yaml:"chain_cleanup_interval"`
+	Bind                  string        `yaml:"bind"`
+	Port                  int           `yaml:"port"`
+	LogLevel              string        `yaml:"log_level"`
+	LogFormat             string        `yaml:"log_format"`
+	HealthCheckInterval   time.Duration `yaml:"health_check_interval"`
+	ChainCleanupInterval  time.Duration `yaml:"chain_cleanup_interval"`
+	HealthCheckTimeout    time.Duration `yaml:"health_check_timeout"`
+	HealthCheckConcurrent int           `yaml:"health_check_concurrency"`
 }
 
 type Proxy struct {
@@ -161,6 +166,12 @@ func loadConfig(path string) (Config, error) {
 	if cfg.General.ChainCleanupInterval == 0 {
 		cfg.General.ChainCleanupInterval = defaultChainCleanupInterval
 	}
+	if cfg.General.HealthCheckTimeout == 0 {
+		cfg.General.HealthCheckTimeout = defaultHealthCheckTimeout
+	}
+	if cfg.General.HealthCheckConcurrent <= 0 {
+		cfg.General.HealthCheckConcurrent = defaultHealthCheckConcurrent
+	}
 	return cfg, nil
 }
 
@@ -231,7 +242,7 @@ func main() {
 	for _, uc := range cfg.Chains {
 		userChains[uc.Username] = uc
 	}
-	startHealthChecks(&cfg, cfg.General.HealthCheckInterval)
+	startHealthChecks(&cfg)
 	startChainCacheCleanup(cfg.General.ChainCleanupInterval)
 	for {
 		c, err := ln.Accept()
@@ -576,17 +587,18 @@ func connectProxy(prev net.Conn, hop *Proxy, host string, port int, timeout time
 	return conn, nil
 }
 
-func checkProxyAlive(p *Proxy) bool {
+func checkProxyAlive(ctx context.Context, p *Proxy, timeout time.Duration) (bool, error) {
 	addr := net.JoinHostPort(p.Host, strconv.Itoa(p.Port))
-	conn, err := net.DialTimeout("tcp", addr, proxyDialTimeout)
+	d := net.Dialer{Timeout: timeout}
+	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return false
+		return false, err
 	}
 	conn.Close()
-	return true
+	return true, nil
 }
 
-func startHealthChecks(cfg *Config, interval time.Duration) {
+func startHealthChecks(cfg *Config) {
 	proxies := []*Proxy{}
 	for i := range cfg.Chains {
 		for j := range cfg.Chains[i].Chain {
@@ -594,22 +606,36 @@ func startHealthChecks(cfg *Config, interval time.Duration) {
 		}
 	}
 	go func() {
-		ticker := time.NewTicker(interval)
+		ticker := time.NewTicker(cfg.General.HealthCheckInterval)
 		defer ticker.Stop()
-		for {
-			<-ticker.C
+		for range ticker.C {
+			var wg sync.WaitGroup
+			sem := make(chan struct{}, cfg.General.HealthCheckConcurrent)
 			for _, p := range proxies {
-				alive := checkProxyAlive(p)
-				old := p.alive.Load()
-				if alive != old {
-					if alive {
-						infoLog.Printf("proxy %s recovered", p.Name)
-					} else {
-						warnLog.Printf("proxy %s marked dead", p.Name)
+				p := p
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					sem <- struct{}{}
+					defer func() { <-sem }()
+					ctx, cancel := context.WithTimeout(context.Background(), cfg.General.HealthCheckTimeout)
+					defer cancel()
+					alive, err := checkProxyAlive(ctx, p, cfg.General.HealthCheckTimeout)
+					if err != nil {
+						warnLog.Printf("proxy %s health check error: %v", p.Name, err)
 					}
-					p.alive.Store(alive)
-				}
+					old := p.alive.Load()
+					if alive != old {
+						if alive {
+							infoLog.Printf("proxy %s recovered", p.Name)
+						} else {
+							warnLog.Printf("proxy %s marked dead", p.Name)
+						}
+						p.alive.Store(alive)
+					}
+				}()
 			}
+			wg.Wait()
 		}
 	}()
 }

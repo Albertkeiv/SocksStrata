@@ -29,6 +29,9 @@ general:
   log_level: "info"
   log_format: "text"
   health_check_interval: 30s
+  chain_cleanup_interval: 10m
+  health_check_timeout: 5s
+  health_check_concurrency: 10
 
 chains:
   - username: "user"
@@ -65,6 +68,9 @@ The table below describes all fields available in the YAML configuration.
 | `log_level` | Logging verbosity. | `debug`, `info`, `warn`/`warning`. | `info` |
 | `log_format` | Format of log output. | `text`, `json`. | `text` |
 | `health_check_interval` | How often to probe upstream proxies. Accepts Go duration strings such as `30s` or `1m`. | Any positive duration. | `30s` |
+| `chain_cleanup_interval` | Frequency at which cached proxy chains are purged. | Any positive duration or `0` to disable. | `10m` |
+| `health_check_timeout` | Maximum time to wait for a single proxy health check. | Any positive duration. | `5s` |
+| `health_check_concurrency` | Number of proxy health checks to run in parallel. | Any positive integer. | `10` |
 
 #### `chains`
 
