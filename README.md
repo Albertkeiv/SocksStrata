@@ -8,7 +8,7 @@ proxy chaining.
 
 Configuration is stored in a YAML file with two sections:
 
-* **general** – listener and logging settings
+* **general** – listener, logging, and health check settings
 * **chains** – list of user credentials and their proxy chains
 
 Each entry in `chains` defines the username/password a client must supply
@@ -28,6 +28,7 @@ general:
   port: 1080
   log_level: "info"
   log_format: "text"
+  health_check_interval: 30s
 
 chains:
   - username: "user"
@@ -51,6 +52,9 @@ chains:
             host: "proxy3.example"
             port: 1080
 ```
+
+`health_check_interval` controls how often upstream proxies are probed to
+determine their availability. If omitted, it defaults to `30s`.
 
 ## Usage
 
