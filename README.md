@@ -113,16 +113,23 @@ The server performs health checks on all defined proxies at the interval specifi
 
 ## Building
 
+Ensure you have a Go toolchain installed. To build the project and all
+its packages, run:
+
+```bash
+go build ./...
+```
+
 To compile the proxy as a regular binary:
 
 ```bash
-go build -o socksstrata
+go build -o socksstrata ./...
 ```
 
 To produce a statically linked binary that can be moved between machines of the same architecture:
 
 ```bash
-CGO_ENABLED=0 go build -ldflags "-s -w" -o socksstrata-static
+CGO_ENABLED=0 go build -ldflags "-s -w" -o socksstrata-static ./...
 ```
 
 ## Usage

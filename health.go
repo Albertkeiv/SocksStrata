@@ -1,0 +1,62 @@
+package main
+
+import (
+	"context"
+	"net"
+	"strconv"
+	"sync"
+	"time"
+)
+
+func checkProxyAlive(ctx context.Context, p *Proxy, timeout time.Duration) (bool, error) {
+	addr := net.JoinHostPort(p.Host, strconv.Itoa(p.Port))
+	d := net.Dialer{Timeout: timeout}
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false, err
+	}
+	conn.Close()
+	return true, nil
+}
+
+func startHealthChecks(cfg *Config) {
+	proxies := []*Proxy{}
+	for i := range cfg.Chains {
+		for j := range cfg.Chains[i].Chain {
+			proxies = append(proxies, cfg.Chains[i].Chain[j].Proxies...)
+		}
+	}
+	go func() {
+		ticker := time.NewTicker(cfg.General.HealthCheckInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			var wg sync.WaitGroup
+			sem := make(chan struct{}, cfg.General.HealthCheckConcurrent)
+			for _, p := range proxies {
+				p := p
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					sem <- struct{}{}
+					defer func() { <-sem }()
+					ctx, cancel := context.WithTimeout(context.Background(), cfg.General.HealthCheckTimeout)
+					defer cancel()
+					alive, err := checkProxyAlive(ctx, p, cfg.General.HealthCheckTimeout)
+					if err != nil {
+						warnLog.Printf("proxy %s health check error: %v", p.Name, err)
+					}
+					old := p.alive.Load()
+					if alive != old {
+						if alive {
+							infoLog.Printf("proxy %s recovered", p.Name)
+						} else {
+							warnLog.Printf("proxy %s marked dead", p.Name)
+						}
+						p.alive.Store(alive)
+					}
+				}()
+			}
+			wg.Wait()
+		}
+	}()
+}
