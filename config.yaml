@@ -4,6 +4,7 @@ general:
   log_level: "info"
   log_format: "text"
   health_check_interval: 30s
+  chain_cleanup_interval: 10m
 
 chains:
   - username: "user"
