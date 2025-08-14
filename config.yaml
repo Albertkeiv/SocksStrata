@@ -5,6 +5,8 @@ general:
   log_format: "text"
   health_check_interval: 30s
   chain_cleanup_interval: 10m
+  health_check_timeout: 5s
+  health_check_concurrency: 10
 
 chains:
   - username: "user"
