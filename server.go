@@ -10,20 +10,24 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 	defer conn.Close()
 	buf := make([]byte, 260)
 	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
-		warnLog.Printf("handshake read: %v", err)
+		warnLog.Printf("handshake read: %v, code 0xFF", err)
+		conn.Write([]byte{0x05, 0xFF})
 		return
 	}
 	if buf[0] != 0x05 {
-		warnLog.Printf("unsupported version %d", buf[0])
+		warnLog.Printf("unsupported version %d, code 0xFF", buf[0])
+		conn.Write([]byte{0x05, 0xFF})
 		return
 	}
 	nmethods := int(buf[1])
 	if nmethods == 0 || nmethods > 255 {
-		warnLog.Printf("bad nmethods %d", nmethods)
+		warnLog.Printf("bad nmethods %d, code 0xFF", nmethods)
+		conn.Write([]byte{0x05, 0xFF})
 		return
 	}
 	if _, err := io.ReadFull(conn, buf[:nmethods]); err != nil {
-		warnLog.Printf("read methods: %v", err)
+		warnLog.Printf("read methods: %v, code 0xFF", err)
+		conn.Write([]byte{0x05, 0xFF})
 		return
 	}
 	debugLog.Printf("client methods: %v", buf[:nmethods])
@@ -50,36 +54,42 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 	var chain []*Hop
 	if method == 0x02 {
 		if _, err := io.ReadFull(conn, buf[:2]); err != nil {
-			warnLog.Printf("auth header: %v", err)
+			warnLog.Printf("auth header: %v, code 0x01", err)
+			conn.Write([]byte{0x01, 0x01})
 			return
 		}
 		if buf[0] != 0x01 {
-			warnLog.Printf("bad auth version %d", buf[0])
+			warnLog.Printf("bad auth version %d, code 0x01", buf[0])
+			conn.Write([]byte{0x01, 0x01})
 			return
 		}
 		ulen := int(buf[1])
 		if ulen == 0 || ulen > 255 {
-			warnLog.Printf("bad ulen %d", ulen)
+			warnLog.Printf("bad ulen %d, code 0x01", ulen)
+			conn.Write([]byte{0x01, 0x01})
 			return
 		}
 		if _, err := io.ReadFull(conn, buf[:ulen+1]); err != nil {
-			warnLog.Printf("read uname and plen: %v", err)
+			warnLog.Printf("read uname and plen: %v, code 0x01", err)
+			conn.Write([]byte{0x01, 0x01})
 			return
 		}
 		uname := string(buf[:ulen])
 		plen := int(buf[ulen])
 		if plen == 0 || plen > 255 {
-			warnLog.Printf("bad plen %d", plen)
+			warnLog.Printf("bad plen %d, code 0x01", plen)
+			conn.Write([]byte{0x01, 0x01})
 			return
 		}
 		if _, err := io.ReadFull(conn, buf[:plen]); err != nil {
-			warnLog.Printf("read passwd: %v", err)
+			warnLog.Printf("read passwd: %v, code 0x01", err)
+			conn.Write([]byte{0x01, 0x01})
 			return
 		}
 		passwd := string(buf[:plen])
 		uc, ok := chains[uname]
 		if !ok || uc.Password != passwd {
-			warnLog.Printf("authentication failed for user %s", uname)
+			warnLog.Printf("authentication failed for user %s, code 0x01", uname)
 			conn.Write([]byte{0x01, 0x01})
 			return
 		}
@@ -89,7 +99,8 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 		}
 	}
 	if _, err := io.ReadFull(conn, buf[:4]); err != nil {
-		warnLog.Printf("read request header: %v", err)
+		warnLog.Printf("read request header: %v, code 0x01", err)
+		conn.Write([]byte{0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}
 	if buf[0] != 0x05 {
@@ -139,7 +150,7 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 		remote, err = net.Dial("tcp", dest)
 	}
 	if err != nil {
-		warnLog.Printf("connect to %s failed: %v", dest, err)
+		warnLog.Printf("connect to %s failed: %v, code 0x04", dest, err)
 		conn.Write([]byte{0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}
