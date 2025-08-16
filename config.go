@@ -65,12 +65,15 @@ type Config struct {
 }
 
 func loadConfig(path string) (Config, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return Config{}, err
 	}
+	defer f.Close()
+	dec := yaml.NewDecoder(f)
+	dec.KnownFields(true)
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := dec.Decode(&cfg); err != nil {
 		return Config{}, err
 	}
 	if cfg.General.LogLevel == "" {
