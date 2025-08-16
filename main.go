@@ -11,13 +11,13 @@ import (
 	"time"
 )
 
-func buildUserChains(chains []UserChain) (map[string]UserChain, error) {
-	userChains := make(map[string]UserChain)
+func buildUserChains(chains []UserChain) (map[string]*ChainState, error) {
+	userChains := make(map[string]*ChainState)
 	for _, uc := range chains {
 		if _, ok := userChains[uc.Username]; ok {
 			return nil, fmt.Errorf("duplicate username %q", uc.Username)
 		}
-		userChains[uc.Username] = uc
+		userChains[uc.Username] = &ChainState{chain: uc.Chain, password: uc.Password}
 	}
 	return userChains, nil
 }
@@ -59,6 +59,6 @@ func main() {
 		} else {
 			infoLog.Printf("client connected: %s", c.RemoteAddr())
 		}
-		go handleConn(c, userChains.Load().(map[string]UserChain))
+		go handleConn(c, userChains.Load().(map[string]*ChainState))
 	}
 }
