@@ -14,11 +14,12 @@ Configuration is stored in a YAML file with two sections:
 Each entry in `chains` defines the username/password a client must supply
 and an ordered sequence of hops. A hop may specify a single upstream
 SOCKS5 proxy directly or provide multiple proxies with a load-balancing
-strategy. When multiple proxies are listed, they are tried according to
-the selected strategy until a connection succeeds. Supported strategies
-are `rr` (round-robin) and `random`. Hops are traversed in the order they
-are listed. If `chains` is empty, authentication is not required and
-connections are made directly.
+  strategy. When multiple proxies are listed, they are tried according to
+  the selected strategy until a connection succeeds. Supported strategies
+  are `rr` (round-robin), `random`, and `priority` (highest priority first
+  with round-robin on ties). Hops are traversed in the order they
+  are listed. If `chains` is empty, authentication is not required and
+  connections are made directly.
 
 Example configuration:
 
@@ -95,7 +96,7 @@ Additional hop parameters:
 
 | Field | Description | Values | Default |
 | ----- | ----------- | ------ | ------- |
-| `strategy` | Order in which proxies from `proxies` are attempted. | `rr` for round‑robin, `random` for random selection. | `rr` |
+| `strategy` | Order in which proxies from `proxies` are attempted. | `rr` for round‑robin, `random` for random selection, `priority` to use proxy priorities. | `rr` |
 
 #### Proxy fields
 
@@ -108,6 +109,7 @@ Proxy definitions used either directly in a hop or within a `proxies` list inclu
 | `password` | Password for upstream proxy authentication. |
 | `host` | Hostname or IP of the upstream proxy. |
 | `port` | TCP port of the upstream proxy. |
+| `priority` | Optional integer; higher values are tried first. Proxies with the same priority use round‑robin. |
 
 The server performs health checks on all defined proxies at the interval specified by `health_check_interval`. When a proxy fails a check it is temporarily excluded from rotation until it becomes reachable again.
 

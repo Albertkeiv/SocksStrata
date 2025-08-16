@@ -38,18 +38,20 @@ type Proxy struct {
 	Password string      `yaml:"password"`
 	Host     string      `yaml:"host"`
 	Port     int         `yaml:"port"`
+	Priority int         `yaml:"priority"`
 	alive    atomic.Bool `yaml:"-"`
 }
 
 type Hop struct {
-	Strategy string   `yaml:"strategy"`
-	Proxies  []*Proxy `yaml:"proxies"`
-	Name     string   `yaml:"name"`
-	Username string   `yaml:"username"`
-	Password string   `yaml:"password"`
-	Host     string   `yaml:"host"`
-	Port     int      `yaml:"port"`
-	rrCount  uint32   `yaml:"-"`
+	Strategy   string          `yaml:"strategy"`
+	Proxies    []*Proxy        `yaml:"proxies"`
+	Name       string          `yaml:"name"`
+	Username   string          `yaml:"username"`
+	Password   string          `yaml:"password"`
+	Host       string          `yaml:"host"`
+	Port       int             `yaml:"port"`
+	rrCount    uint32          `yaml:"-"`
+	priorityRR map[int]*uint32 `yaml:"-"`
 }
 
 type UserChain struct {
@@ -119,7 +121,7 @@ func validateConfig(cfg *Config) error {
 		for hi, hop := range uc.Chain {
 			if len(hop.Proxies) > 0 {
 				strat := strings.ToLower(hop.Strategy)
-				if strat != "" && strat != "rr" && strat != "random" {
+				if strat != "" && strat != "rr" && strat != "random" && strat != "priority" {
 					return fmt.Errorf("chains[%d].chain[%d]: invalid strategy %q", ci, hi, hop.Strategy)
 				}
 				for pi, p := range hop.Proxies {
@@ -159,8 +161,15 @@ func initProxies(cfg *Config) {
 				p.alive.Store(true)
 				hop.Proxies = []*Proxy{p}
 			}
+			if hop.priorityRR == nil {
+				hop.priorityRR = make(map[int]*uint32)
+			}
 			for _, p := range hop.Proxies {
 				p.alive.Store(true)
+				if _, ok := hop.priorityRR[p.Priority]; !ok {
+					var v uint32
+					hop.priorityRR[p.Priority] = &v
+				}
 			}
 		}
 	}
