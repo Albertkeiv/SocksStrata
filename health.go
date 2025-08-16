@@ -19,17 +19,22 @@ func checkProxyAlive(ctx context.Context, p *Proxy, timeout time.Duration) (bool
 	return true, nil
 }
 
-func startHealthChecks(cfg *Config) {
-	proxies := []*Proxy{}
-	for i := range cfg.Chains {
-		for j := range cfg.Chains[i].Chain {
-			proxies = append(proxies, cfg.Chains[i].Chain[j].Proxies...)
-		}
-	}
+func startHealthChecks(ctx context.Context, cfg *Config) {
 	go func() {
 		ticker := time.NewTicker(cfg.General.HealthCheckInterval)
 		defer ticker.Stop()
-		for range ticker.C {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+			proxies := []*Proxy{}
+			for i := range cfg.Chains {
+				for j := range cfg.Chains[i].Chain {
+					proxies = append(proxies, cfg.Chains[i].Chain[j].Proxies...)
+				}
+			}
 			var wg sync.WaitGroup
 			sem := make(chan struct{}, cfg.General.HealthCheckConcurrent)
 			for _, p := range proxies {
@@ -39,9 +44,9 @@ func startHealthChecks(cfg *Config) {
 					defer wg.Done()
 					sem <- struct{}{}
 					defer func() { <-sem }()
-					ctx, cancel := context.WithTimeout(context.Background(), cfg.General.HealthCheckTimeout)
+					checkCtx, cancel := context.WithTimeout(ctx, cfg.General.HealthCheckTimeout)
 					defer cancel()
-					alive, err := checkProxyAlive(ctx, p, cfg.General.HealthCheckTimeout)
+					alive, err := checkProxyAlive(checkCtx, p, cfg.General.HealthCheckTimeout)
 					if err != nil {
 						warnLog.Printf("proxy %s health check error: %v", p.Name, err)
 					}
