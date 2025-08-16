@@ -30,11 +30,13 @@ func startHealthChecks(ctx context.Context, cfg *Config) {
 			case <-ticker.C:
 			}
 			proxies := []*Proxy{}
+			chainsMu.RLock()
 			for i := range cfg.Chains {
 				for j := range cfg.Chains[i].Chain {
 					proxies = append(proxies, cfg.Chains[i].Chain[j].Proxies...)
 				}
 			}
+			chainsMu.RUnlock()
 			var wg sync.WaitGroup
 			sem := make(chan struct{}, cfg.General.HealthCheckConcurrent)
 			for _, p := range proxies {

@@ -31,6 +31,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	ioTimeout = cfg.General.IOTimeout
 	initProxies(&cfg)
 	initLoggers(cfg.General.LogLevel, cfg.General.LogFormat)
 	addr := net.JoinHostPort(cfg.General.Bind, strconv.Itoa(cfg.General.Port))
@@ -39,12 +40,14 @@ func main() {
 		log.Fatal(err)
 	}
 	infoLog.Printf("listening on %s", addr)
-	userChains, err := buildUserChains(cfg.Chains)
+	ucMap, err := buildUserChains(cfg.Chains)
 	if err != nil {
 		log.Fatal(err)
 	}
+	userChains.Store(ucMap)
 	startHealthChecks(ctx, &cfg)
 	startChainCacheCleanup(cfg.General.ChainCleanupInterval)
+	startConfigReload(ctx, &cfg)
 	for {
 		c, err := ln.Accept()
 		if err != nil {
@@ -56,6 +59,6 @@ func main() {
 		} else {
 			infoLog.Printf("client connected: %s", c.RemoteAddr())
 		}
-		go handleConn(c, userChains)
+		go handleConn(c, userChains.Load().(map[string]UserChain))
 	}
 }
