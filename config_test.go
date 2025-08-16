@@ -58,6 +58,17 @@ func TestValidateConfig(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "negative cleanup interval",
+			cfg: Config{General: General{
+				Bind:                  "0.0.0.0",
+				Port:                  1080,
+				HealthCheckInterval:   time.Second,
+				ChainCleanupInterval:  -time.Second,
+				HealthCheckTimeout:    time.Second,
+				HealthCheckConcurrent: 1,
+			}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -68,9 +79,33 @@ func TestValidateConfig(t *testing.T) {
 	}
 }
 
+func TestChainCleanupIntervalZero(t *testing.T) {
+	cfg := Config{General: General{
+		Bind:                  "127.0.0.1",
+		Port:                  1080,
+		HealthCheckInterval:   time.Second,
+		ChainCleanupInterval:  0,
+		HealthCheckTimeout:    time.Second,
+		HealthCheckConcurrent: 1,
+	}}
+	if err := validateConfig(&cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestLoadConfigInvalid(t *testing.T) {
 	if _, err := loadConfig("testdata/invalid_config.yaml"); err == nil {
 		t.Fatalf("expected error")
+	}
+}
+
+func TestLoadConfigZeroCleanupInterval(t *testing.T) {
+	cfg, err := loadConfig("testdata/zero_cleanup_config.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.General.ChainCleanupInterval != 0 {
+		t.Fatalf("expected 0, got %v", cfg.General.ChainCleanupInterval)
 	}
 }
 
