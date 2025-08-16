@@ -5,29 +5,36 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"time"
 )
 
 func handleConn(conn net.Conn, chains map[string]UserChain) {
 	defer conn.Close()
 	buf := make([]byte, 260)
+	conn.SetDeadline(time.Now().Add(ioTimeout))
 	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
 		warnLog.Printf("handshake read: %v, code 0xFF", err)
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		conn.Write([]byte{0x05, 0xFF})
 		return
 	}
 	if buf[0] != 0x05 {
 		warnLog.Printf("unsupported version %d, code 0xFF", buf[0])
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		conn.Write([]byte{0x05, 0xFF})
 		return
 	}
 	nmethods := int(buf[1])
 	if nmethods == 0 || nmethods > 255 {
 		warnLog.Printf("bad nmethods %d, code 0xFF", nmethods)
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		conn.Write([]byte{0x05, 0xFF})
 		return
 	}
+	conn.SetDeadline(time.Now().Add(ioTimeout))
 	if _, err := io.ReadFull(conn, buf[:nmethods]); err != nil {
 		warnLog.Printf("read methods: %v, code 0xFF", err)
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		conn.Write([]byte{0x05, 0xFF})
 		return
 	}
@@ -45,33 +52,41 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 		}
 	}
 	if method == 0xFF {
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		conn.Write([]byte{0x05, 0xFF})
 		return
 	}
+	conn.SetDeadline(time.Now().Add(ioTimeout))
 	if _, err := conn.Write([]byte{0x05, method}); err != nil {
 		return
 	}
 	debugLog.Printf("server selected method: 0x%02X", method)
 	var chain []*Hop
 	if method == 0x02 {
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		if _, err := io.ReadFull(conn, buf[:2]); err != nil {
 			warnLog.Printf("auth header: %v, code 0x01", err)
+			conn.SetDeadline(time.Now().Add(ioTimeout))
 			conn.Write([]byte{0x01, 0x01})
 			return
 		}
 		if buf[0] != 0x01 {
 			warnLog.Printf("bad auth version %d, code 0x01", buf[0])
+			conn.SetDeadline(time.Now().Add(ioTimeout))
 			conn.Write([]byte{0x01, 0x01})
 			return
 		}
 		ulen := int(buf[1])
 		if ulen == 0 || ulen > 255 {
 			warnLog.Printf("bad ulen %d, code 0x01", ulen)
+			conn.SetDeadline(time.Now().Add(ioTimeout))
 			conn.Write([]byte{0x01, 0x01})
 			return
 		}
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		if _, err := io.ReadFull(conn, buf[:ulen+1]); err != nil {
 			warnLog.Printf("read uname and plen: %v, code 0x01", err)
+			conn.SetDeadline(time.Now().Add(ioTimeout))
 			conn.Write([]byte{0x01, 0x01})
 			return
 		}
@@ -79,11 +94,14 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 		plen := int(buf[ulen])
 		if plen == 0 || plen > 255 {
 			warnLog.Printf("bad plen %d, code 0x01", plen)
+			conn.SetDeadline(time.Now().Add(ioTimeout))
 			conn.Write([]byte{0x01, 0x01})
 			return
 		}
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		if _, err := io.ReadFull(conn, buf[:plen]); err != nil {
 			warnLog.Printf("read passwd: %v, code 0x01", err)
+			conn.SetDeadline(time.Now().Add(ioTimeout))
 			conn.Write([]byte{0x01, 0x01})
 			return
 		}
@@ -91,16 +109,20 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 		uc, ok := chains[uname]
 		if !ok || uc.Password != passwd {
 			warnLog.Printf("authentication failed for user %s, code 0x01", uname)
+			conn.SetDeadline(time.Now().Add(ioTimeout))
 			conn.Write([]byte{0x01, 0x01})
 			return
 		}
 		chain = uc.Chain
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		if _, err := conn.Write([]byte{0x01, 0x00}); err != nil {
 			return
 		}
 	}
+	conn.SetDeadline(time.Now().Add(ioTimeout))
 	if _, err := io.ReadFull(conn, buf[:4]); err != nil {
 		warnLog.Printf("read request header: %v, code 0x01", err)
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		conn.Write([]byte{0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}
@@ -108,6 +130,7 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 		return
 	}
 	if buf[1] != 0x01 { // CONNECT only
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		conn.Write([]byte{0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}
@@ -115,35 +138,41 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 	var host string
 	switch atyp {
 	case 0x01: // IPv4
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		if _, err := io.ReadFull(conn, buf[:4]); err != nil {
 			return
 		}
 		host = net.IP(buf[:4]).String()
 	case 0x03: // domain
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		if _, err := io.ReadFull(conn, buf[:1]); err != nil {
 			return
 		}
 		dlen := int(buf[0])
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		if _, err := io.ReadFull(conn, buf[:dlen]); err != nil {
 			return
 		}
 		host = string(buf[:dlen])
 	case 0x04: // IPv6
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		if _, err := io.ReadFull(conn, buf[:16]); err != nil {
 			return
 		}
 		host = net.IP(buf[:16]).String()
 	default:
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		conn.Write([]byte{0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}
+	conn.SetDeadline(time.Now().Add(ioTimeout))
 	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
 		return
 	}
 	port := int(buf[0])<<8 | int(buf[1])
 	dest := net.JoinHostPort(host, strconv.Itoa(port))
 	debugLog.Printf("connect request to %s", dest)
-	ctx, cancel := context.WithTimeout(context.Background(), proxyDialTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), ioTimeout)
 	defer cancel()
 	var remote net.Conn
 	var err error
@@ -155,6 +184,7 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 	}
 	if err != nil {
 		warnLog.Printf("connect to %s failed: %v, code 0x04", dest, err)
+		conn.SetDeadline(time.Now().Add(ioTimeout))
 		conn.Write([]byte{0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}
@@ -169,9 +199,12 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 	resp := []byte{0x05, 0x00, 0x00, atyp}
 	resp = append(resp, lip...)
 	resp = append(resp, byte(la.Port>>8), byte(la.Port))
+	conn.SetDeadline(time.Now().Add(ioTimeout))
 	if _, err := conn.Write(resp); err != nil {
 		return
 	}
+	conn.SetDeadline(time.Time{})
+	remote.SetDeadline(time.Time{})
 	debugLog.Printf("server responded with %v", resp)
 	proxy(remote, conn)
 }

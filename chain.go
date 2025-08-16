@@ -129,7 +129,7 @@ func connectThrough(ctx context.Context, combo []*Proxy, finalHost string, final
 			nextHost = next.Host
 			nextPort = next.Port
 		}
-		conn, err = connectProxy(ctx, conn, combo[i], nextHost, nextPort, proxyDialTimeout)
+		conn, err = connectProxy(ctx, conn, combo[i], nextHost, nextPort, ioTimeout)
 		if err != nil {
 			combo[i].alive.Store(false)
 			if conn != nil {
@@ -188,9 +188,11 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 		methods = append(methods, 0x02)
 	}
 	req := append([]byte{0x05, byte(len(methods))}, methods...)
+	conn.SetDeadline(time.Now().Add(timeout))
 	if _, err := conn.Write(req); err != nil {
 		return nil, err
 	}
+	conn.SetDeadline(time.Now().Add(timeout))
 	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
 		return nil, err
 	}
@@ -208,9 +210,11 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 		req = append(req, u...)
 		req = append(req, byte(len(p)))
 		req = append(req, p...)
+		conn.SetDeadline(time.Now().Add(timeout))
 		if _, err := conn.Write(req); err != nil {
 			return nil, err
 		}
+		conn.SetDeadline(time.Now().Add(timeout))
 		if _, err := io.ReadFull(conn, buf[:2]); err != nil {
 			return nil, err
 		}
@@ -227,9 +231,11 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 	req = []byte{0x05, 0x01, 0x00, atyp}
 	req = append(req, addrBytes...)
 	req = append(req, byte(port>>8), byte(port))
+	conn.SetDeadline(time.Now().Add(timeout))
 	if _, err := conn.Write(req); err != nil {
 		return nil, err
 	}
+	conn.SetDeadline(time.Now().Add(timeout))
 	if _, err := io.ReadFull(conn, buf[:4]); err != nil {
 		return nil, err
 	}
@@ -241,6 +247,7 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 	case 0x01:
 		skip = 4
 	case 0x03:
+		conn.SetDeadline(time.Now().Add(timeout))
 		if _, err := io.ReadFull(conn, buf[:1]); err != nil {
 			return nil, err
 		}
@@ -250,9 +257,11 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 	default:
 		return nil, fmt.Errorf("bad atyp %d", buf[3])
 	}
+	conn.SetDeadline(time.Now().Add(timeout))
 	if _, err := io.ReadFull(conn, buf[:skip+2]); err != nil {
 		return nil, err
 	}
+	conn.SetDeadline(time.Time{})
 	debugLog.Printf("hop %s connection established", hop.Name)
 	return conn, nil
 }
