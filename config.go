@@ -15,7 +15,6 @@ var configPath = flag.String("config", "config.yaml", "path to config file")
 
 const (
 	defaultHealthCheckInterval   = 30 * time.Second
-	defaultChainCleanupInterval  = 10 * time.Minute
 	defaultHealthCheckTimeout    = 5 * time.Second
 	defaultHealthCheckConcurrent = 10
 	proxyDialTimeout             = 5 * time.Second
@@ -83,9 +82,6 @@ func loadConfig(path string) (Config, error) {
 	if cfg.General.HealthCheckInterval == 0 {
 		cfg.General.HealthCheckInterval = defaultHealthCheckInterval
 	}
-	if cfg.General.ChainCleanupInterval == 0 {
-		cfg.General.ChainCleanupInterval = defaultChainCleanupInterval
-	}
 	if cfg.General.HealthCheckTimeout == 0 {
 		cfg.General.HealthCheckTimeout = defaultHealthCheckTimeout
 	}
@@ -108,8 +104,8 @@ func validateConfig(cfg *Config) error {
 	if cfg.General.HealthCheckInterval <= 0 {
 		return fmt.Errorf("general.health_check_interval must be positive")
 	}
-	if cfg.General.ChainCleanupInterval <= 0 {
-		return fmt.Errorf("general.chain_cleanup_interval must be positive")
+	if cfg.General.ChainCleanupInterval < 0 {
+		return fmt.Errorf("general.chain_cleanup_interval must be non-negative")
 	}
 	if cfg.General.HealthCheckTimeout <= 0 {
 		return fmt.Errorf("general.health_check_timeout must be positive")
