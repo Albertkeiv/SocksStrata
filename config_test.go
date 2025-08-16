@@ -73,3 +73,13 @@ func TestLoadConfigInvalid(t *testing.T) {
 		t.Fatalf("expected error")
 	}
 }
+
+func TestBuildUserChainsDuplicate(t *testing.T) {
+	chains := []UserChain{
+		{Username: "user1"},
+		{Username: "user1"},
+	}
+	if _, err := buildUserChains(chains); err == nil {
+		t.Fatalf("expected error")
+	}
+}

@@ -3,12 +3,24 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"math/rand"
 	"net"
 	"strconv"
 	"time"
 )
+
+func buildUserChains(chains []UserChain) (map[string]UserChain, error) {
+	userChains := make(map[string]UserChain)
+	for _, uc := range chains {
+		if _, ok := userChains[uc.Username]; ok {
+			return nil, fmt.Errorf("duplicate username %q", uc.Username)
+		}
+		userChains[uc.Username] = uc
+	}
+	return userChains, nil
+}
 
 func main() {
 	flag.Parse()
@@ -27,9 +39,9 @@ func main() {
 		log.Fatal(err)
 	}
 	infoLog.Printf("listening on %s", addr)
-	userChains := make(map[string]UserChain)
-	for _, uc := range cfg.Chains {
-		userChains[uc.Username] = uc
+	userChains, err := buildUserChains(cfg.Chains)
+	if err != nil {
+		log.Fatal(err)
 	}
 	startHealthChecks(ctx, &cfg)
 	startChainCacheCleanup(cfg.General.ChainCleanupInterval)
