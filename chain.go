@@ -19,10 +19,23 @@ type cachedChain struct {
 	lastUsed time.Time
 }
 
-var (
-	chainCache   = make(map[string]*cachedChain)
-	chainCacheMu sync.RWMutex
-)
+type ChainState struct {
+	chain    []*Hop
+	password string
+	cacheMu  sync.RWMutex
+	cache    *cachedChain
+	refs     int32
+}
+
+func (cs *ChainState) acquire() { atomic.AddInt32(&cs.refs, 1) }
+
+func (cs *ChainState) release() { atomic.AddInt32(&cs.refs, -1) }
+
+func (cs *ChainState) clearCache() {
+	cs.cacheMu.Lock()
+	cs.cache = nil
+	cs.cacheMu.Unlock()
+}
 
 func (h *Hop) orderedProxies() []*Proxy {
 	var proxies []*Proxy
@@ -83,39 +96,31 @@ func (h *Hop) orderedProxies() []*Proxy {
 	return proxies
 }
 
-func dialChain(ctx context.Context, chain []*Hop, finalHost string, finalPort int) (net.Conn, error) {
-	key := chainKey(chain)
-	chainCacheMu.RLock()
-	cached := chainCache[key]
-	chainCacheMu.RUnlock()
+func dialChain(ctx context.Context, state *ChainState, finalHost string, finalPort int) (net.Conn, error) {
+	state.cacheMu.RLock()
+	cached := state.cache
+	state.cacheMu.RUnlock()
 	if cached != nil {
 		if conn, err := connectThrough(ctx, cached.combo, finalHost, finalPort); err == nil {
-			chainCacheMu.Lock()
+			state.cacheMu.Lock()
 			cached.lastUsed = time.Now()
-			chainCacheMu.Unlock()
+			state.cacheMu.Unlock()
 			return conn, nil
 		}
-		chainCacheMu.Lock()
-		delete(chainCache, key)
-		chainCacheMu.Unlock()
+		state.cacheMu.Lock()
+		state.cache = nil
+		state.cacheMu.Unlock()
 	}
+	chain := state.chain
 	current := make([]*Proxy, len(chain))
 	conn, err := dialChainRecursive(ctx, chain, 0, current, finalHost, finalPort)
 	if err == nil {
 		combo := append([]*Proxy(nil), current...)
-		chainCacheMu.Lock()
-		chainCache[key] = &cachedChain{combo: combo, lastUsed: time.Now()}
-		chainCacheMu.Unlock()
+		state.cacheMu.Lock()
+		state.cache = &cachedChain{combo: combo, lastUsed: time.Now()}
+		state.cacheMu.Unlock()
 	}
 	return conn, err
-}
-
-func chainKey(chain []*Hop) string {
-	parts := make([]string, len(chain))
-	for i, hop := range chain {
-		parts[i] = fmt.Sprintf("%p", hop)
-	}
-	return strings.Join(parts, "-")
 }
 
 func connectThrough(ctx context.Context, combo []*Proxy, finalHost string, finalPort int) (net.Conn, error) {
@@ -287,13 +292,14 @@ func startChainCacheCleanup(ttl time.Duration) {
 		defer ticker.Stop()
 		for range ticker.C {
 			now := time.Now()
-			chainCacheMu.Lock()
-			for k, v := range chainCache {
-				if now.Sub(v.lastUsed) > ttl {
-					delete(chainCache, k)
+			chains := userChains.Load().(map[string]*ChainState)
+			for _, st := range chains {
+				st.cacheMu.Lock()
+				if st.cache != nil && now.Sub(st.cache.lastUsed) > ttl {
+					st.cache = nil
 				}
+				st.cacheMu.Unlock()
 			}
-			chainCacheMu.Unlock()
 		}
 	}()
 }

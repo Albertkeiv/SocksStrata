@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,14 +38,39 @@ func startConfigReload(ctx context.Context, cfg *Config) {
 				warnLog.Printf("config reload build chains: %v", err)
 				continue
 			}
-			chainCacheMu.Lock()
-			chainCache = make(map[string]*cachedChain)
-			chainCacheMu.Unlock()
 			chainsMu.Lock()
+			oldChains := userChains.Load().(map[string]*ChainState)
+			updated := make(map[string]*ChainState, len(newChains))
+			for name, st := range newChains {
+				if old, ok := oldChains[name]; ok {
+					if reflect.DeepEqual(old.chain, st.chain) && old.password == st.password {
+						updated[name] = old
+					} else {
+						updated[name] = st
+						cleanupChain(old)
+					}
+				} else {
+					updated[name] = st
+				}
+			}
+			for name, old := range oldChains {
+				if _, ok := updated[name]; !ok {
+					cleanupChain(old)
+				}
+			}
 			cfg.Chains = newCfg.Chains
-			userChains.Store(newChains)
+			userChains.Store(updated)
 			chainsMu.Unlock()
-			infoLog.Printf("reloaded %d chains", len(newChains))
+			infoLog.Printf("reloaded %d chains", len(updated))
 		}
+	}()
+}
+
+func cleanupChain(cs *ChainState) {
+	go func() {
+		for atomic.LoadInt32(&cs.refs) > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+		cs.clearCache()
 	}()
 }

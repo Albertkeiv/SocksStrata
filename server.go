@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func handleConn(conn net.Conn, chains map[string]UserChain) {
+func handleConn(conn net.Conn, chains map[string]*ChainState) {
 	defer conn.Close()
 	buf := make([]byte, 260)
 	conn.SetDeadline(time.Now().Add(ioTimeout))
@@ -61,7 +61,7 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 		return
 	}
 	debugLog.Printf("server selected method: 0x%02X", method)
-	var chain []*Hop
+	var state *ChainState
 	if method == 0x02 {
 		conn.SetDeadline(time.Now().Add(ioTimeout))
 		if _, err := io.ReadFull(conn, buf[:2]); err != nil {
@@ -106,14 +106,14 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 			return
 		}
 		passwd := string(buf[:plen])
-		uc, ok := chains[uname]
-		if !ok || uc.Password != passwd {
+		st, ok := chains[uname]
+		if !ok || st.password != passwd {
 			warnLog.Printf("authentication failed for user %s, code 0x01", uname)
 			conn.SetDeadline(time.Now().Add(ioTimeout))
 			conn.Write([]byte{0x01, 0x01})
 			return
 		}
-		chain = uc.Chain
+		state = st
 		conn.SetDeadline(time.Now().Add(ioTimeout))
 		if _, err := conn.Write([]byte{0x01, 0x00}); err != nil {
 			return
@@ -176,8 +176,10 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 	defer cancel()
 	var remote net.Conn
 	var err error
-	if len(chain) > 0 {
-		remote, err = dialChain(ctx, chain, host, port)
+	if state != nil && len(state.chain) > 0 {
+		state.acquire()
+		defer state.release()
+		remote, err = dialChain(ctx, state, host, port)
 	} else {
 		d := net.Dialer{}
 		remote, err = d.DialContext(ctx, "tcp", dest)
