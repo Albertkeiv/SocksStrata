@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"math/rand"
@@ -12,6 +13,8 @@ import (
 func main() {
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		log.Fatal(err)
@@ -28,7 +31,7 @@ func main() {
 	for _, uc := range cfg.Chains {
 		userChains[uc.Username] = uc
 	}
-	startHealthChecks(&cfg)
+	startHealthChecks(ctx, &cfg)
 	startChainCacheCleanup(cfg.General.ChainCleanupInterval)
 	for {
 		c, err := ln.Accept()
