@@ -132,9 +132,6 @@ func connectThrough(ctx context.Context, combo []*Proxy, finalHost string, final
 		conn, err = connectProxy(ctx, conn, combo[i], nextHost, nextPort, ioTimeout)
 		if err != nil {
 			combo[i].alive.Store(false)
-			if conn != nil {
-				conn.Close()
-			}
 			return nil, fmt.Errorf("hop %s: %w", combo[i].Name, err)
 		}
 		debugLog.Printf("connected to hop %s targeting %s:%d", combo[i].Name, nextHost, nextPort)
@@ -190,13 +187,16 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 	req := append([]byte{0x05, byte(len(methods))}, methods...)
 	conn.SetDeadline(time.Now().Add(timeout))
 	if _, err := conn.Write(req); err != nil {
+		conn.Close()
 		return nil, err
 	}
 	conn.SetDeadline(time.Now().Add(timeout))
 	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
+		conn.Close()
 		return nil, err
 	}
 	if buf[0] != 0x05 {
+		conn.Close()
 		return nil, fmt.Errorf("bad method response")
 	}
 	method := buf[1]
@@ -204,6 +204,7 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 		u := []byte(hop.Username)
 		p := []byte(hop.Password)
 		if len(u) > 255 || len(p) > 255 {
+			conn.Close()
 			return nil, fmt.Errorf("hop %s: username/password too long", hop.Name)
 		}
 		req := []byte{0x01, byte(len(u))}
@@ -212,20 +213,25 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 		req = append(req, p...)
 		conn.SetDeadline(time.Now().Add(timeout))
 		if _, err := conn.Write(req); err != nil {
+			conn.Close()
 			return nil, err
 		}
 		conn.SetDeadline(time.Now().Add(timeout))
 		if _, err := io.ReadFull(conn, buf[:2]); err != nil {
+			conn.Close()
 			return nil, err
 		}
 		if buf[1] != 0x00 {
+			conn.Close()
 			return nil, fmt.Errorf("auth failed for hop %s", hop.Name)
 		}
 	} else if method != 0x00 {
+		conn.Close()
 		return nil, fmt.Errorf("bad method response")
 	}
 	atyp, addrBytes, err := encodeAddr(host)
 	if err != nil {
+		conn.Close()
 		return nil, err
 	}
 	req = []byte{0x05, 0x01, 0x00, atyp}
@@ -233,13 +239,16 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 	req = append(req, byte(port>>8), byte(port))
 	conn.SetDeadline(time.Now().Add(timeout))
 	if _, err := conn.Write(req); err != nil {
+		conn.Close()
 		return nil, err
 	}
 	conn.SetDeadline(time.Now().Add(timeout))
 	if _, err := io.ReadFull(conn, buf[:4]); err != nil {
+		conn.Close()
 		return nil, err
 	}
 	if buf[1] != 0x00 {
+		conn.Close()
 		return nil, fmt.Errorf("connect failed on hop %s", hop.Name)
 	}
 	var skip int
@@ -249,16 +258,19 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 	case 0x03:
 		conn.SetDeadline(time.Now().Add(timeout))
 		if _, err := io.ReadFull(conn, buf[:1]); err != nil {
+			conn.Close()
 			return nil, err
 		}
 		skip = int(buf[0])
 	case 0x04:
 		skip = 16
 	default:
+		conn.Close()
 		return nil, fmt.Errorf("bad atyp %d", buf[3])
 	}
 	conn.SetDeadline(time.Now().Add(timeout))
 	if _, err := io.ReadFull(conn, buf[:skip+2]); err != nil {
+		conn.Close()
 		return nil, err
 	}
 	conn.SetDeadline(time.Time{})
