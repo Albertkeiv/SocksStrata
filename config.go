@@ -32,6 +32,7 @@ type General struct {
 	HealthCheckTimeout    time.Duration `yaml:"health_check_timeout"`
 	HealthCheckConcurrent int           `yaml:"health_check_concurrency"`
 	IOTimeout             time.Duration `yaml:"io_timeout"`
+	ConfigReloadInterval  time.Duration `yaml:"config_reload_interval"`
 }
 
 type Proxy struct {
@@ -100,7 +101,6 @@ func loadConfig(path string) (Config, error) {
 	if err := validateConfig(&cfg); err != nil {
 		return Config{}, err
 	}
-	ioTimeout = cfg.General.IOTimeout
 	return cfg, nil
 }
 
@@ -116,6 +116,9 @@ func validateConfig(cfg *Config) error {
 	}
 	if cfg.General.ChainCleanupInterval < 0 {
 		return fmt.Errorf("general.chain_cleanup_interval must be non-negative")
+	}
+	if cfg.General.ConfigReloadInterval < 0 {
+		return fmt.Errorf("general.config_reload_interval must be non-negative")
 	}
 	if cfg.General.HealthCheckTimeout <= 0 {
 		return fmt.Errorf("general.health_check_timeout must be positive")
