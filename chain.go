@@ -201,6 +201,9 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 	if method == 0x02 {
 		u := []byte(hop.Username)
 		p := []byte(hop.Password)
+		if len(u) > 255 || len(p) > 255 {
+			return nil, fmt.Errorf("hop %s: username/password too long", hop.Name)
+		}
 		req := []byte{0x01, byte(len(u))}
 		req = append(req, u...)
 		req = append(req, byte(len(p)))

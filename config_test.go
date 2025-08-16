@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -68,6 +69,38 @@ func TestValidateConfig(t *testing.T) {
 				HealthCheckTimeout:    time.Second,
 				HealthCheckConcurrent: 1,
 			}},
+		},
+		{
+			name: "proxy username too long",
+			cfg: Config{
+				General: validGen,
+				Chains: []UserChain{
+					{
+						Chain: []*Hop{
+							{
+								Proxies: []*Proxy{{
+									Host:     "proxy.example",
+									Port:     1080,
+									Username: strings.Repeat("a", 256),
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "userchain password too long",
+			cfg: Config{
+				General: validGen,
+				Chains: []UserChain{
+					{
+						Username: "user",
+						Password: strings.Repeat("b", 256),
+						Chain:    []*Hop{{Host: "example.com", Port: 1080}},
+					},
+				},
+			},
 		},
 	}
 	for _, tt := range tests {
