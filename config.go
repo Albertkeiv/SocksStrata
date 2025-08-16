@@ -117,6 +117,12 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("general.health_check_concurrency must be positive")
 	}
 	for ci, uc := range cfg.Chains {
+		if len(uc.Username) > 255 {
+			return fmt.Errorf("chains[%d]: username too long", ci)
+		}
+		if len(uc.Password) > 255 {
+			return fmt.Errorf("chains[%d]: password too long", ci)
+		}
 		for hi, hop := range uc.Chain {
 			if len(hop.Proxies) > 0 {
 				strat := strings.ToLower(hop.Strategy)
@@ -130,6 +136,12 @@ func validateConfig(cfg *Config) error {
 					if p.Port <= 0 || p.Port > 65535 {
 						return fmt.Errorf("chains[%d].chain[%d].proxies[%d]: port must be between 1 and 65535", ci, hi, pi)
 					}
+					if len(p.Username) > 255 {
+						return fmt.Errorf("chains[%d].chain[%d].proxies[%d]: username too long", ci, hi, pi)
+					}
+					if len(p.Password) > 255 {
+						return fmt.Errorf("chains[%d].chain[%d].proxies[%d]: password too long", ci, hi, pi)
+					}
 				}
 			} else {
 				if hop.Host == "" {
@@ -137,6 +149,12 @@ func validateConfig(cfg *Config) error {
 				}
 				if hop.Port <= 0 || hop.Port > 65535 {
 					return fmt.Errorf("chains[%d].chain[%d]: port must be between 1 and 65535", ci, hi)
+				}
+				if len(hop.Username) > 255 {
+					return fmt.Errorf("chains[%d].chain[%d]: username too long", ci, hi)
+				}
+				if len(hop.Password) > 255 {
+					return fmt.Errorf("chains[%d].chain[%d]: password too long", ci, hi)
 				}
 			}
 		}
