@@ -169,6 +169,5 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 		return
 	}
 	debugLog.Printf("server responded with %v", resp)
-	go io.Copy(remote, conn)
-	io.Copy(conn, remote)
+	proxy(remote, conn)
 }
