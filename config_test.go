@@ -99,6 +99,12 @@ func TestLoadConfigInvalid(t *testing.T) {
 	}
 }
 
+func TestLoadConfigUnknownField(t *testing.T) {
+	if _, err := loadConfig("testdata/unknown_field_config.yaml"); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
 func TestLoadConfigZeroCleanupInterval(t *testing.T) {
 	cfg, err := loadConfig("testdata/zero_cleanup_config.yaml")
 	if err != nil {
