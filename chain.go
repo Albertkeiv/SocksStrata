@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math/rand"
@@ -82,13 +83,13 @@ func (h *Hop) orderedProxies() []*Proxy {
 	return proxies
 }
 
-func dialChain(chain []*Hop, finalHost string, finalPort int) (net.Conn, error) {
+func dialChain(ctx context.Context, chain []*Hop, finalHost string, finalPort int) (net.Conn, error) {
 	key := chainKey(chain)
 	chainCacheMu.RLock()
 	cached := chainCache[key]
 	chainCacheMu.RUnlock()
 	if cached != nil {
-		if conn, err := connectThrough(cached.combo, finalHost, finalPort); err == nil {
+		if conn, err := connectThrough(ctx, cached.combo, finalHost, finalPort); err == nil {
 			chainCacheMu.Lock()
 			cached.lastUsed = time.Now()
 			chainCacheMu.Unlock()
@@ -99,7 +100,7 @@ func dialChain(chain []*Hop, finalHost string, finalPort int) (net.Conn, error) 
 		chainCacheMu.Unlock()
 	}
 	current := make([]*Proxy, len(chain))
-	conn, err := dialChainRecursive(chain, 0, current, finalHost, finalPort)
+	conn, err := dialChainRecursive(ctx, chain, 0, current, finalHost, finalPort)
 	if err == nil {
 		combo := append([]*Proxy(nil), current...)
 		chainCacheMu.Lock()
@@ -117,7 +118,7 @@ func chainKey(chain []*Hop) string {
 	return strings.Join(parts, "-")
 }
 
-func connectThrough(combo []*Proxy, finalHost string, finalPort int) (net.Conn, error) {
+func connectThrough(ctx context.Context, combo []*Proxy, finalHost string, finalPort int) (net.Conn, error) {
 	var conn net.Conn
 	var err error
 	for i := range combo {
@@ -128,7 +129,7 @@ func connectThrough(combo []*Proxy, finalHost string, finalPort int) (net.Conn, 
 			nextHost = next.Host
 			nextPort = next.Port
 		}
-		conn, err = connectProxy(conn, combo[i], nextHost, nextPort, proxyDialTimeout)
+		conn, err = connectProxy(ctx, conn, combo[i], nextHost, nextPort, proxyDialTimeout)
 		if err != nil {
 			combo[i].alive.Store(false)
 			if conn != nil {
@@ -141,15 +142,15 @@ func connectThrough(combo []*Proxy, finalHost string, finalPort int) (net.Conn, 
 	return conn, nil
 }
 
-func dialChainRecursive(chain []*Hop, depth int, current []*Proxy, finalHost string, finalPort int) (net.Conn, error) {
+func dialChainRecursive(ctx context.Context, chain []*Hop, depth int, current []*Proxy, finalHost string, finalPort int) (net.Conn, error) {
 	if depth == len(chain) {
-		return connectThrough(current, finalHost, finalPort)
+		return connectThrough(ctx, current, finalHost, finalPort)
 	}
 	proxies := chain[depth].orderedProxies()
 	var lastErr error
 	for _, p := range proxies {
 		current[depth] = p
-		conn, err := dialChainRecursive(chain, depth+1, current, finalHost, finalPort)
+		conn, err := dialChainRecursive(ctx, chain, depth+1, current, finalHost, finalPort)
 		if err == nil {
 			return conn, nil
 		}
@@ -161,13 +162,16 @@ func dialChainRecursive(chain []*Hop, depth int, current []*Proxy, finalHost str
 	return nil, fmt.Errorf("no valid proxy chain")
 }
 
-func connectProxy(prev net.Conn, hop *Proxy, host string, port int, timeout time.Duration) (net.Conn, error) {
+func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, port int, timeout time.Duration) (net.Conn, error) {
 	addr := net.JoinHostPort(hop.Host, strconv.Itoa(hop.Port))
 	var conn net.Conn
 	var err error
 	if prev == nil {
 		debugLog.Printf("dialing hop %s at %s", hop.Name, addr)
-		conn, err = net.DialTimeout("tcp", addr, timeout)
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		d := net.Dialer{}
+		conn, err = d.DialContext(ctx, "tcp", addr)
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				return nil, fmt.Errorf("dial to %s timed out after %s", addr, timeout)

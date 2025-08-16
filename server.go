@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net"
 	"strconv"
@@ -142,12 +143,15 @@ func handleConn(conn net.Conn, chains map[string]UserChain) {
 	port := int(buf[0])<<8 | int(buf[1])
 	dest := net.JoinHostPort(host, strconv.Itoa(port))
 	debugLog.Printf("connect request to %s", dest)
+	ctx, cancel := context.WithTimeout(context.Background(), proxyDialTimeout)
+	defer cancel()
 	var remote net.Conn
 	var err error
 	if len(chain) > 0 {
-		remote, err = dialChain(chain, host, port)
+		remote, err = dialChain(ctx, chain, host, port)
 	} else {
-		remote, err = net.Dial("tcp", dest)
+		d := net.Dialer{}
+		remote, err = d.DialContext(ctx, "tcp", dest)
 	}
 	if err != nil {
 		warnLog.Printf("connect to %s failed: %v, code 0x04", dest, err)
