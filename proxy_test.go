@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"io"
+	"log"
 	"net"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -61,5 +65,82 @@ func TestProxyClosesOnRemoteClose(t *testing.T) {
 
 	if _, err := c1.Read(make([]byte, 1)); err == nil {
 		t.Fatal("expected c1 to be closed")
+	}
+}
+
+type logBuffer struct {
+	sync.Mutex
+	bytes.Buffer
+}
+
+func (b *logBuffer) Write(p []byte) (int, error) {
+	b.Lock()
+	defer b.Unlock()
+	return b.Buffer.Write(p)
+}
+
+func (b *logBuffer) String() string {
+	b.Lock()
+	defer b.Unlock()
+	return b.Buffer.String()
+}
+
+type errConn struct {
+	net.Conn
+}
+
+func (e *errConn) Write([]byte) (int, error) {
+	return 0, io.ErrClosedPipe
+}
+
+func TestProxyLogsErrorAToB(t *testing.T) {
+	var buf logBuffer
+	origWarn, origDebug := warnLog, debugLog
+	warnLog = log.New(&buf, "", 0)
+	debugLog = log.New(&buf, "", 0)
+	defer func() { warnLog = origWarn; debugLog = origDebug }()
+
+	c1, c2 := net.Pipe()
+	b := &errConn{Conn: c2}
+
+	done := make(chan struct{})
+	go func() { proxy(c1, b); close(done) }()
+
+	go func() {
+		c1.Write([]byte("x"))
+		c1.Close()
+	}()
+
+	<-done
+
+	logs := buf.String()
+	if !strings.Contains(logs, "a→b") {
+		t.Fatalf("expected log for a→b direction, got %q", logs)
+	}
+}
+
+func TestProxyLogsErrorBToA(t *testing.T) {
+	var buf logBuffer
+	origWarn, origDebug := warnLog, debugLog
+	warnLog = log.New(&buf, "", 0)
+	debugLog = log.New(&buf, "", 0)
+	defer func() { warnLog = origWarn; debugLog = origDebug }()
+
+	c1, c2 := net.Pipe()
+	a := &errConn{Conn: c1}
+
+	done := make(chan struct{})
+	go func() { proxy(a, c2); close(done) }()
+
+	go func() {
+		c2.Write([]byte("y"))
+		c2.Close()
+	}()
+
+	<-done
+
+	logs := buf.String()
+	if !strings.Contains(logs, "b→a") {
+		t.Fatalf("expected log for b→a direction, got %q", logs)
 	}
 }
