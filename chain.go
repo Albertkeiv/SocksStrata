@@ -5,6 +5,7 @@ import (
 	"io"
 	"math/rand"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,6 +50,30 @@ func (h *Hop) orderedProxies() []*Proxy {
 		rand.Shuffle(len(proxies), func(i, j int) {
 			proxies[i], proxies[j] = proxies[j], proxies[i]
 		})
+	case "priority":
+		groups := make(map[int][]*Proxy)
+		var priorities []int
+		for _, p := range proxies {
+			pr := p.Priority
+			if _, ok := groups[pr]; !ok {
+				priorities = append(priorities, pr)
+			}
+			groups[pr] = append(groups[pr], p)
+		}
+		sort.Slice(priorities, func(i, j int) bool { return priorities[i] > priorities[j] })
+		ordered := make([]*Proxy, 0, len(proxies))
+		for _, pr := range priorities {
+			grp := groups[pr]
+			if len(grp) > 1 {
+				if cnt, ok := h.priorityRR[pr]; ok {
+					idx := atomic.AddUint32(cnt, 1) - 1
+					start := int(idx % uint32(len(grp)))
+					grp = append(grp[start:], grp[:start]...)
+				}
+			}
+			ordered = append(ordered, grp...)
+		}
+		proxies = ordered
 	default:
 		idx := atomic.AddUint32(&h.rrCount, 1) - 1
 		start := int(idx % uint32(len(proxies)))
