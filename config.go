@@ -17,8 +17,10 @@ const (
 	defaultHealthCheckInterval   = 30 * time.Second
 	defaultHealthCheckTimeout    = 5 * time.Second
 	defaultHealthCheckConcurrent = 10
-	proxyDialTimeout             = 5 * time.Second
+	defaultIOTimeout             = 5 * time.Second
 )
+
+var ioTimeout = defaultIOTimeout
 
 type General struct {
 	Bind                  string        `yaml:"bind"`
@@ -29,6 +31,7 @@ type General struct {
 	ChainCleanupInterval  time.Duration `yaml:"chain_cleanup_interval"`
 	HealthCheckTimeout    time.Duration `yaml:"health_check_timeout"`
 	HealthCheckConcurrent int           `yaml:"health_check_concurrency"`
+	IOTimeout             time.Duration `yaml:"io_timeout"`
 }
 
 type Proxy struct {
@@ -91,9 +94,13 @@ func loadConfig(path string) (Config, error) {
 	if cfg.General.HealthCheckConcurrent <= 0 {
 		cfg.General.HealthCheckConcurrent = defaultHealthCheckConcurrent
 	}
+	if cfg.General.IOTimeout == 0 {
+		cfg.General.IOTimeout = defaultIOTimeout
+	}
 	if err := validateConfig(&cfg); err != nil {
 		return Config{}, err
 	}
+	ioTimeout = cfg.General.IOTimeout
 	return cfg, nil
 }
 
@@ -115,6 +122,9 @@ func validateConfig(cfg *Config) error {
 	}
 	if cfg.General.HealthCheckConcurrent <= 0 {
 		return fmt.Errorf("general.health_check_concurrency must be positive")
+	}
+	if cfg.General.IOTimeout <= 0 {
+		return fmt.Errorf("general.io_timeout must be positive")
 	}
 	for ci, uc := range cfg.Chains {
 		if len(uc.Username) > 255 {
