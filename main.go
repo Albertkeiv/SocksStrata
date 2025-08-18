@@ -56,7 +56,7 @@ func main() {
 	}
 	userChains.Store(ucMap)
 	startHealthChecks(ctx, &cfg)
-	startChainCacheCleanup(cfg.General.ChainCleanupInterval)
+	startChainCacheCleanup(ctx, cfg.General.ChainCleanupInterval)
 	startConfigReload(ctx, &cfg)
 	for {
 		c, err := ln.Accept()
