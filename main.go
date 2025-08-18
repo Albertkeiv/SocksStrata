@@ -40,6 +40,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	sem := make(chan struct{}, cfg.General.MaxConnections)
 	infoLog.Printf("listening on %s", addr)
 	ucMap, err := buildUserChains(cfg.Chains)
 	if err != nil {
@@ -55,11 +56,20 @@ func main() {
 			warnLog.Printf("accept: %v", err)
 			continue
 		}
-		if ra, ok := c.RemoteAddr().(*net.TCPAddr); ok {
-			infoLog.Printf("client connected: %s", ra.IP)
-		} else {
-			infoLog.Printf("client connected: %s", c.RemoteAddr())
+		select {
+		case sem <- struct{}{}:
+			if ra, ok := c.RemoteAddr().(*net.TCPAddr); ok {
+				infoLog.Printf("client connected: %s", ra.IP)
+			} else {
+				infoLog.Printf("client connected: %s", c.RemoteAddr())
+			}
+			go func() {
+				defer func() { <-sem }()
+				handleConn(c, userChains.Load().(map[string]*ChainState))
+			}()
+		default:
+			warnLog.Printf("too many connections; closing %s", c.RemoteAddr())
+			c.Close()
 		}
-		go handleConn(c, userChains.Load().(map[string]*ChainState))
 	}
 }
