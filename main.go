@@ -32,6 +32,7 @@ func main() {
 		log.Fatal(err)
 	}
 	ioTimeout = cfg.General.IOTimeout
+	idleTimeout = cfg.General.IdleTimeout
 	initProxies(&cfg)
 	initLoggers(cfg.General.LogLevel, cfg.General.LogFormat)
 	addr := net.JoinHostPort(cfg.General.Bind, strconv.Itoa(cfg.General.Port))
