@@ -40,6 +40,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer func() {
+		if err := ln.Close(); err != nil {
+			warnLog.Printf("listener close: %v", err)
+		}
+	}()
 	infoLog.Printf("listening on %s", addr)
 	ucMap, err := buildUserChains(cfg.Chains)
 	if err != nil {
