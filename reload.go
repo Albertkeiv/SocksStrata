@@ -47,7 +47,7 @@ func startConfigReload(ctx context.Context, cfg *Config) {
 						updated[name] = old
 					} else {
 						updated[name] = st
-						cleanupChain(old)
+						cleanupChain(ctx, old)
 					}
 				} else {
 					updated[name] = st
@@ -55,7 +55,7 @@ func startConfigReload(ctx context.Context, cfg *Config) {
 			}
 			for name, old := range oldChains {
 				if _, ok := updated[name]; !ok {
-					cleanupChain(old)
+					cleanupChain(ctx, old)
 				}
 			}
 			cfg.Chains = newCfg.Chains
@@ -66,11 +66,20 @@ func startConfigReload(ctx context.Context, cfg *Config) {
 	}()
 }
 
-func cleanupChain(cs *ChainState) {
+func cleanupChain(ctx context.Context, cs *ChainState) {
 	go func() {
-		for atomic.LoadInt32(&cs.refs) > 0 {
-			time.Sleep(100 * time.Millisecond)
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			if atomic.LoadInt32(&cs.refs) <= 0 {
+				cs.clearCache()
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
 		}
-		cs.clearCache()
 	}()
 }
