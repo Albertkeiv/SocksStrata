@@ -283,22 +283,27 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 	return conn, nil
 }
 
-func startChainCacheCleanup(ttl time.Duration) {
+func startChainCacheCleanup(ctx context.Context, ttl time.Duration) {
 	if ttl <= 0 {
 		return
 	}
 	go func() {
 		ticker := time.NewTicker(ttl)
 		defer ticker.Stop()
-		for range ticker.C {
-			now := time.Now()
-			chains := userChains.Load().(map[string]*ChainState)
-			for _, st := range chains {
-				st.cacheMu.Lock()
-				if st.cache != nil && now.Sub(st.cache.lastUsed) > ttl {
-					st.cache = nil
+		for {
+			select {
+			case <-ticker.C:
+				now := time.Now()
+				chains := userChains.Load().(map[string]*ChainState)
+				for _, st := range chains {
+					st.cacheMu.Lock()
+					if st.cache != nil && now.Sub(st.cache.lastUsed) > ttl {
+						st.cache = nil
+					}
+					st.cacheMu.Unlock()
 				}
-				st.cacheMu.Unlock()
+			case <-ctx.Done():
+				return
 			}
 		}
 	}()
