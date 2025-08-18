@@ -16,6 +16,7 @@ func TestValidateConfig(t *testing.T) {
 		HealthCheckConcurrent: 1,
 		IOTimeout:             time.Second,
 		IdleTimeout:           time.Minute,
+		MaxConnections:        1,
 	}
 	tests := []struct {
 		name string
@@ -32,6 +33,7 @@ func TestValidateConfig(t *testing.T) {
 				HealthCheckConcurrent: 1,
 				IOTimeout:             time.Second,
 				IdleTimeout:           time.Minute,
+				MaxConnections:        1,
 			}},
 		},
 		{
@@ -74,6 +76,7 @@ func TestValidateConfig(t *testing.T) {
 				HealthCheckConcurrent: 1,
 				IOTimeout:             time.Second,
 				IdleTimeout:           time.Minute,
+				MaxConnections:        1,
 			}},
 		},
 		{
@@ -87,6 +90,7 @@ func TestValidateConfig(t *testing.T) {
 				HealthCheckConcurrent: 1,
 				IOTimeout:             time.Second,
 				IdleTimeout:           0,
+				MaxConnections:        1,
 			}},
 		},
 		{
@@ -141,6 +145,7 @@ func TestChainCleanupIntervalZero(t *testing.T) {
 		HealthCheckConcurrent: 1,
 		IOTimeout:             time.Second,
 		IdleTimeout:           time.Minute,
+		MaxConnections:        1,
 	}}
 	if err := validateConfig(&cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)

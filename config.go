@@ -19,6 +19,7 @@ const (
 	defaultHealthCheckConcurrent = 10
 	defaultIOTimeout             = 5 * time.Second
 	defaultIdleTimeout           = 5 * time.Minute
+	defaultMaxConnections        = 100
 )
 
 var ioTimeout = defaultIOTimeout
@@ -36,6 +37,7 @@ type General struct {
 	IOTimeout             time.Duration `yaml:"io_timeout"`
 	IdleTimeout           time.Duration `yaml:"idle_timeout"`
 	ConfigReloadInterval  time.Duration `yaml:"config_reload_interval"`
+	MaxConnections        int           `yaml:"max_connections"`
 }
 
 type Proxy struct {
@@ -104,6 +106,9 @@ func loadConfig(path string) (Config, error) {
 	if cfg.General.IdleTimeout == 0 {
 		cfg.General.IdleTimeout = defaultIdleTimeout
 	}
+	if cfg.General.MaxConnections <= 0 {
+		cfg.General.MaxConnections = defaultMaxConnections
+	}
 	if err := validateConfig(&cfg); err != nil {
 		return Config{}, err
 	}
@@ -137,6 +142,9 @@ func validateConfig(cfg *Config) error {
 	}
 	if cfg.General.IdleTimeout <= 0 {
 		return fmt.Errorf("general.idle_timeout must be positive")
+	}
+	if cfg.General.MaxConnections <= 0 {
+		return fmt.Errorf("general.max_connections must be positive")
 	}
 	for ci, uc := range cfg.Chains {
 		if len(uc.Username) > 255 {
