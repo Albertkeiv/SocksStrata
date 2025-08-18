@@ -68,6 +68,8 @@ func startConfigReload(ctx context.Context, cfg *Config) {
 
 func cleanupChain(ctx context.Context, cs *ChainState) {
 	go func() {
+		timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 		for {
@@ -76,7 +78,8 @@ func cleanupChain(ctx context.Context, cs *ChainState) {
 				return
 			}
 			select {
-			case <-ctx.Done():
+			case <-timeoutCtx.Done():
+				warnLog.Printf("cleanup chain: timeout waiting for refs")
 				return
 			case <-ticker.C:
 			}
