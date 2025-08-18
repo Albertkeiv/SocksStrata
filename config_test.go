@@ -15,6 +15,7 @@ func TestValidateConfig(t *testing.T) {
 		HealthCheckTimeout:    time.Second,
 		HealthCheckConcurrent: 1,
 		IOTimeout:             time.Second,
+		IdleTimeout:           time.Minute,
 	}
 	tests := []struct {
 		name string
@@ -30,6 +31,7 @@ func TestValidateConfig(t *testing.T) {
 				HealthCheckTimeout:    time.Second,
 				HealthCheckConcurrent: 1,
 				IOTimeout:             time.Second,
+				IdleTimeout:           time.Minute,
 			}},
 		},
 		{
@@ -71,6 +73,20 @@ func TestValidateConfig(t *testing.T) {
 				HealthCheckTimeout:    time.Second,
 				HealthCheckConcurrent: 1,
 				IOTimeout:             time.Second,
+				IdleTimeout:           time.Minute,
+			}},
+		},
+		{
+			name: "invalid idle timeout",
+			cfg: Config{General: General{
+				Bind:                  "0.0.0.0",
+				Port:                  1080,
+				HealthCheckInterval:   time.Second,
+				ChainCleanupInterval:  time.Second,
+				HealthCheckTimeout:    time.Second,
+				HealthCheckConcurrent: 1,
+				IOTimeout:             time.Second,
+				IdleTimeout:           0,
 			}},
 		},
 		{
@@ -124,6 +140,7 @@ func TestChainCleanupIntervalZero(t *testing.T) {
 		HealthCheckTimeout:    time.Second,
 		HealthCheckConcurrent: 1,
 		IOTimeout:             time.Second,
+		IdleTimeout:           time.Minute,
 	}}
 	if err := validateConfig(&cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)

@@ -18,9 +18,11 @@ const (
 	defaultHealthCheckTimeout    = 5 * time.Second
 	defaultHealthCheckConcurrent = 10
 	defaultIOTimeout             = 5 * time.Second
+	defaultIdleTimeout           = 5 * time.Minute
 )
 
 var ioTimeout = defaultIOTimeout
+var idleTimeout = defaultIdleTimeout
 
 type General struct {
 	Bind                  string        `yaml:"bind"`
@@ -32,6 +34,7 @@ type General struct {
 	HealthCheckTimeout    time.Duration `yaml:"health_check_timeout"`
 	HealthCheckConcurrent int           `yaml:"health_check_concurrency"`
 	IOTimeout             time.Duration `yaml:"io_timeout"`
+	IdleTimeout           time.Duration `yaml:"idle_timeout"`
 	ConfigReloadInterval  time.Duration `yaml:"config_reload_interval"`
 }
 
@@ -98,6 +101,9 @@ func loadConfig(path string) (Config, error) {
 	if cfg.General.IOTimeout == 0 {
 		cfg.General.IOTimeout = defaultIOTimeout
 	}
+	if cfg.General.IdleTimeout == 0 {
+		cfg.General.IdleTimeout = defaultIdleTimeout
+	}
 	if err := validateConfig(&cfg); err != nil {
 		return Config{}, err
 	}
@@ -128,6 +134,9 @@ func validateConfig(cfg *Config) error {
 	}
 	if cfg.General.IOTimeout <= 0 {
 		return fmt.Errorf("general.io_timeout must be positive")
+	}
+	if cfg.General.IdleTimeout <= 0 {
+		return fmt.Errorf("general.idle_timeout must be positive")
 	}
 	for ci, uc := range cfg.Chains {
 		if len(uc.Username) > 255 {

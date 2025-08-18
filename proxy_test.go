@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestProxyClosesOnClientClose(t *testing.T) {
@@ -142,5 +143,36 @@ func TestProxyLogsErrorBToA(t *testing.T) {
 	logs := buf.String()
 	if !strings.Contains(logs, "b→a") {
 		t.Fatalf("expected log for b→a direction, got %q", logs)
+	}
+}
+
+func TestProxyIdleTimeout(t *testing.T) {
+	var buf logBuffer
+	origWarn, origDebug := warnLog, debugLog
+	warnLog = log.New(&buf, "", 0)
+	debugLog = log.New(&buf, "", 0)
+	origIdle := idleTimeout
+	idleTimeout = 50 * time.Millisecond
+	defer func() {
+		warnLog = origWarn
+		debugLog = origDebug
+		idleTimeout = origIdle
+	}()
+
+	c1, c2 := net.Pipe()
+	done := make(chan struct{})
+	go func() { proxy(c1, c2); close(done) }()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("proxy did not timeout")
+	}
+
+	if _, err := c1.Read(make([]byte, 1)); err == nil {
+		t.Fatal("expected c1 to be closed")
+	}
+	if !strings.Contains(buf.String(), "idle timeout") {
+		t.Fatalf("expected idle timeout log, got %q", buf.String())
 	}
 }

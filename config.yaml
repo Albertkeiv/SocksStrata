@@ -8,6 +8,7 @@ general:
   health_check_timeout: 5s
   health_check_concurrency: 10
   io_timeout: 5s
+  idle_timeout: 5m
   config_reload_interval: 0s
 
 chains:
