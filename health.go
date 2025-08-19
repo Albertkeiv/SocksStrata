@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func checkProxyAlive(ctx context.Context, p *Proxy, timeout time.Duration) (bool, error) {
+var checkProxyAlive = func(ctx context.Context, p *Proxy, timeout time.Duration) (bool, error) {
 	addr := net.JoinHostPort(p.Host, strconv.Itoa(p.Port))
 	d := net.Dialer{Timeout: timeout}
 	conn, err := d.DialContext(ctx, "tcp", addr)
