@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"math/rand"
 	"net"
+	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 )
 
@@ -42,6 +46,17 @@ func main() {
 	}
 
 	defer func() {
+		if err := ln.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			warnLog.Printf("listener close: %v", err)
+		}
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigCh
+		cancel()
 		if err := ln.Close(); err != nil {
 			warnLog.Printf("listener close: %v", err)
 		}
@@ -61,6 +76,11 @@ func main() {
 	for {
 		c, err := ln.Accept()
 		if err != nil {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 			warnLog.Printf("accept: %v", err)
 			continue
 		}
