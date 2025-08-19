@@ -17,7 +17,7 @@ func proxy(a, b net.Conn) {
 	copyConn := func(dst, src net.Conn, dir string) {
 		defer wg.Done()
 		buf := make([]byte, 32*1024)
-		dst.SetReadDeadline(time.Now().Add(idleTimeout))
+		dst.SetWriteDeadline(time.Now().Add(idleTimeout))
 		src.SetReadDeadline(time.Now().Add(idleTimeout))
 		for {
 			n, err := src.Read(buf)
@@ -35,7 +35,7 @@ func proxy(a, b net.Conn) {
 					break
 				}
 				src.SetReadDeadline(time.Now().Add(idleTimeout))
-				dst.SetReadDeadline(time.Now().Add(idleTimeout))
+				dst.SetWriteDeadline(time.Now().Add(idleTimeout))
 			}
 			if err != nil {
 				if ne, ok := err.(net.Error); ok && ne.Timeout() {

@@ -176,3 +176,36 @@ func TestProxyIdleTimeout(t *testing.T) {
 		t.Fatalf("expected idle timeout log, got %q", buf.String())
 	}
 }
+
+func TestProxyIdleTimeoutWrite(t *testing.T) {
+	var buf logBuffer
+	origWarn, origDebug := warnLog, debugLog
+	warnLog = log.New(&buf, "", 0)
+	debugLog = log.New(&buf, "", 0)
+	origIdle := idleTimeout
+	idleTimeout = 50 * time.Millisecond
+	defer func() {
+		warnLog = origWarn
+		debugLog = origDebug
+		idleTimeout = origIdle
+	}()
+
+	c1, c2 := net.Pipe()
+	done := make(chan struct{})
+	go func() { proxy(c1, c2); close(done) }()
+
+	go func() { c1.Write([]byte("x")) }()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("proxy did not timeout")
+	}
+
+	if _, err := c2.Read(make([]byte, 1)); err == nil {
+		t.Fatal("expected c2 to be closed")
+	}
+	if !strings.Contains(buf.String(), "idle timeout") {
+		t.Fatalf("expected idle timeout log, got %q", buf.String())
+	}
+}
