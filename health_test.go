@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"strings"
 	"sync"
@@ -31,10 +32,13 @@ func TestStartHealthChecksUpdatesAliveAndLogs(t *testing.T) {
 		name     string
 		initial  bool
 		aliveRet bool
+		errRet   error
+		expected bool
 		logText  string
 	}{
-		{name: "recovered", initial: false, aliveRet: true, logText: "proxy p1 recovered"},
-		{name: "marked dead", initial: true, aliveRet: false, logText: "proxy p1 marked dead"},
+		{name: "recovered", initial: false, aliveRet: true, expected: true, logText: "proxy p1 recovered"},
+		{name: "marked dead", initial: true, aliveRet: false, expected: false, logText: "proxy p1 marked dead"},
+		{name: "health check error", initial: false, aliveRet: false, errRet: errors.New("boom"), expected: false, logText: "proxy p1 health check error"},
 	}
 
 	for _, tt := range tests {
@@ -66,7 +70,7 @@ func TestStartHealthChecksUpdatesAliveAndLogs(t *testing.T) {
 
 			origCheck := checkProxyAlive
 			checkProxyAlive = func(context.Context, *Proxy, time.Duration) (bool, error) {
-				return tt.aliveRet, nil
+				return tt.aliveRet, tt.errRet
 			}
 			defer func() { checkProxyAlive = origCheck }()
 
@@ -74,8 +78,8 @@ func TestStartHealthChecksUpdatesAliveAndLogs(t *testing.T) {
 
 			time.Sleep(50 * time.Millisecond)
 
-			if p.alive.Load() != tt.aliveRet {
-				t.Fatalf("expected alive=%v got %v", tt.aliveRet, p.alive.Load())
+			if p.alive.Load() != tt.expected {
+				t.Fatalf("expected alive=%v got %v", tt.expected, p.alive.Load())
 			}
 			if !strings.Contains(buf.String(), tt.logText) {
 				t.Fatalf("expected log %q, got %q", tt.logText, buf.String())
