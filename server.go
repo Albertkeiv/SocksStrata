@@ -18,7 +18,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
 		warnLog.Printf("handshake read: %v, code 0xFF", err)
 		conn.SetDeadline(time.Now().Add(ioTimeout))
-		if _, err := conn.Write([]byte{0x05, 0xFF}); err != nil {
+		if err := writeFull(conn, []byte{0x05, 0xFF}); err != nil {
 			warnLog.Printf("write: %v", err)
 			conn.Close()
 		}
@@ -27,7 +27,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 	if buf[0] != 0x05 {
 		warnLog.Printf("unsupported version %d, code 0xFF", buf[0])
 		conn.SetDeadline(time.Now().Add(ioTimeout))
-		if _, err := conn.Write([]byte{0x05, 0xFF}); err != nil {
+		if err := writeFull(conn, []byte{0x05, 0xFF}); err != nil {
 			warnLog.Printf("write: %v", err)
 			conn.Close()
 		}
@@ -37,7 +37,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 	if nmethods == 0 || nmethods > 255 {
 		warnLog.Printf("bad nmethods %d, code 0xFF", nmethods)
 		conn.SetDeadline(time.Now().Add(ioTimeout))
-		if _, err := conn.Write([]byte{0x05, 0xFF}); err != nil {
+		if err := writeFull(conn, []byte{0x05, 0xFF}); err != nil {
 			warnLog.Printf("write: %v", err)
 			conn.Close()
 		}
@@ -47,7 +47,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 	if _, err := io.ReadFull(conn, buf[:nmethods]); err != nil {
 		warnLog.Printf("read methods: %v, code 0xFF", err)
 		conn.SetDeadline(time.Now().Add(ioTimeout))
-		if _, err := conn.Write([]byte{0x05, 0xFF}); err != nil {
+		if err := writeFull(conn, []byte{0x05, 0xFF}); err != nil {
 			warnLog.Printf("write: %v", err)
 			conn.Close()
 		}
@@ -68,14 +68,14 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 	}
 	if method == 0xFF {
 		conn.SetDeadline(time.Now().Add(ioTimeout))
-		if _, err := conn.Write([]byte{0x05, 0xFF}); err != nil {
+		if err := writeFull(conn, []byte{0x05, 0xFF}); err != nil {
 			warnLog.Printf("write: %v", err)
 			conn.Close()
 		}
 		return
 	}
 	conn.SetDeadline(time.Now().Add(ioTimeout))
-	if _, err := conn.Write([]byte{0x05, method}); err != nil {
+	if err := writeFull(conn, []byte{0x05, method}); err != nil {
 		warnLog.Printf("write: %v", err)
 		conn.Close()
 		return
@@ -87,7 +87,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 		if _, err := io.ReadFull(conn, buf[:2]); err != nil {
 			warnLog.Printf("auth header: %v, code 0x01", err)
 			conn.SetDeadline(time.Now().Add(ioTimeout))
-			if _, err := conn.Write([]byte{0x01, 0x01}); err != nil {
+			if err := writeFull(conn, []byte{0x01, 0x01}); err != nil {
 				warnLog.Printf("write: %v", err)
 				conn.Close()
 			}
@@ -96,7 +96,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 		if buf[0] != 0x01 {
 			warnLog.Printf("bad auth version %d, code 0x01", buf[0])
 			conn.SetDeadline(time.Now().Add(ioTimeout))
-			if _, err := conn.Write([]byte{0x01, 0x01}); err != nil {
+			if err := writeFull(conn, []byte{0x01, 0x01}); err != nil {
 				warnLog.Printf("write: %v", err)
 				conn.Close()
 			}
@@ -106,7 +106,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 		if ulen == 0 || ulen > 255 {
 			warnLog.Printf("bad ulen %d, code 0x01", ulen)
 			conn.SetDeadline(time.Now().Add(ioTimeout))
-			if _, err := conn.Write([]byte{0x01, 0x01}); err != nil {
+			if err := writeFull(conn, []byte{0x01, 0x01}); err != nil {
 				warnLog.Printf("write: %v", err)
 				conn.Close()
 			}
@@ -116,7 +116,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 		if _, err := io.ReadFull(conn, buf[:ulen+1]); err != nil {
 			warnLog.Printf("read uname and plen: %v, code 0x01", err)
 			conn.SetDeadline(time.Now().Add(ioTimeout))
-			if _, err := conn.Write([]byte{0x01, 0x01}); err != nil {
+			if err := writeFull(conn, []byte{0x01, 0x01}); err != nil {
 				warnLog.Printf("write: %v", err)
 				conn.Close()
 			}
@@ -127,7 +127,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 		if plen == 0 || plen > 255 {
 			warnLog.Printf("bad plen %d, code 0x01", plen)
 			conn.SetDeadline(time.Now().Add(ioTimeout))
-			if _, err := conn.Write([]byte{0x01, 0x01}); err != nil {
+			if err := writeFull(conn, []byte{0x01, 0x01}); err != nil {
 				warnLog.Printf("write: %v", err)
 				conn.Close()
 			}
@@ -137,7 +137,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 		if _, err := io.ReadFull(conn, buf[:plen]); err != nil {
 			warnLog.Printf("read passwd: %v, code 0x01", err)
 			conn.SetDeadline(time.Now().Add(ioTimeout))
-			if _, err := conn.Write([]byte{0x01, 0x01}); err != nil {
+			if err := writeFull(conn, []byte{0x01, 0x01}); err != nil {
 				warnLog.Printf("write: %v", err)
 				conn.Close()
 			}
@@ -148,7 +148,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 		if !ok || st.password != passwd {
 			warnLog.Printf("authentication failed for user %s, code 0x01", uname)
 			conn.SetDeadline(time.Now().Add(ioTimeout))
-			if _, err := conn.Write([]byte{0x01, 0x01}); err != nil {
+			if err := writeFull(conn, []byte{0x01, 0x01}); err != nil {
 				warnLog.Printf("write: %v", err)
 				conn.Close()
 			}
@@ -156,7 +156,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 		}
 		state = st
 		conn.SetDeadline(time.Now().Add(ioTimeout))
-		if _, err := conn.Write([]byte{0x01, 0x00}); err != nil {
+		if err := writeFull(conn, []byte{0x01, 0x00}); err != nil {
 			warnLog.Printf("write: %v", err)
 			conn.Close()
 			return
@@ -166,7 +166,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 	if _, err := io.ReadFull(conn, buf[:4]); err != nil {
 		warnLog.Printf("read request header: %v, code 0x01", err)
 		conn.SetDeadline(time.Now().Add(ioTimeout))
-		if _, err := conn.Write([]byte{0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
+		if err := writeFull(conn, []byte{0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
 			warnLog.Printf("write: %v", err)
 			conn.Close()
 		}
@@ -177,7 +177,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 	}
 	if buf[1] != 0x01 { // CONNECT only
 		conn.SetDeadline(time.Now().Add(ioTimeout))
-		if _, err := conn.Write([]byte{0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
+		if err := writeFull(conn, []byte{0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
 			warnLog.Printf("write: %v", err)
 			conn.Close()
 		}
@@ -211,7 +211,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 		host = net.IP(buf[:16]).String()
 	default:
 		conn.SetDeadline(time.Now().Add(ioTimeout))
-		if _, err := conn.Write([]byte{0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
+		if err := writeFull(conn, []byte{0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
 			warnLog.Printf("write: %v", err)
 			conn.Close()
 		}
@@ -239,7 +239,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 	if err != nil {
 		warnLog.Printf("connect to %s failed: %v, code 0x04", dest, err)
 		conn.SetDeadline(time.Now().Add(ioTimeout))
-		if _, err := conn.Write([]byte{0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
+		if err := writeFull(conn, []byte{0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
 			warnLog.Printf("write: %v", err)
 			conn.Close()
 		}
@@ -260,7 +260,7 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 	resp = append(resp, lip...)
 	resp = append(resp, byte(la.Port>>8), byte(la.Port))
 	conn.SetDeadline(time.Now().Add(ioTimeout))
-	if _, err := conn.Write(resp); err != nil {
+	if err := writeFull(conn, resp); err != nil {
 		warnLog.Printf("write: %v", err)
 		conn.Close()
 		return
