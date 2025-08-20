@@ -180,6 +180,9 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 			}
 			return nil, err
 		}
+		if tcp, ok := conn.(*net.TCPConn); ok {
+			tcp.SetNoDelay(true)
+		}
 	} else {
 		conn = prev
 	}

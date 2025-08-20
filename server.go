@@ -10,6 +10,9 @@ import (
 
 func handleConn(conn net.Conn, chains map[string]*ChainState) {
 	defer conn.Close()
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		tcp.SetNoDelay(true)
+	}
 	buf := make([]byte, 260)
 	conn.SetDeadline(time.Now().Add(ioTimeout))
 	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
@@ -241,6 +244,9 @@ func handleConn(conn net.Conn, chains map[string]*ChainState) {
 			conn.Close()
 		}
 		return
+	}
+	if tcp, ok := remote.(*net.TCPConn); ok {
+		tcp.SetNoDelay(true)
 	}
 	defer remote.Close()
 	la := remote.LocalAddr().(*net.TCPAddr)

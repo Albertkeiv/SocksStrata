@@ -84,6 +84,9 @@ func main() {
 			warnLog.Printf("accept: %v", err)
 			continue
 		}
+		if tcp, ok := c.(*net.TCPConn); ok {
+			tcp.SetNoDelay(true)
+		}
 		select {
 		case sem <- struct{}{}:
 			if ra, ok := c.RemoteAddr().(*net.TCPAddr); ok {
