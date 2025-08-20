@@ -22,7 +22,7 @@ func proxy(a, b net.Conn) {
 		for {
 			n, err := src.Read(buf)
 			if n > 0 {
-				if _, werr := dst.Write(buf[:n]); werr != nil {
+				if werr := writeFull(dst, buf[:n]); werr != nil {
 					if ne, ok := werr.(net.Error); ok && ne.Timeout() {
 						if warnLog != nil {
 							warnLog.Printf("proxy %s: idle timeout", dir)

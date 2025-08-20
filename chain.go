@@ -194,7 +194,7 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 	}
 	req := append([]byte{0x05, byte(len(methods))}, methods...)
 	conn.SetDeadline(time.Now().Add(timeout))
-	if _, err := conn.Write(req); err != nil {
+	if err := writeFull(conn, req); err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -220,7 +220,7 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 		req = append(req, byte(len(p)))
 		req = append(req, p...)
 		conn.SetDeadline(time.Now().Add(timeout))
-		if _, err := conn.Write(req); err != nil {
+		if err := writeFull(conn, req); err != nil {
 			conn.Close()
 			return nil, err
 		}
@@ -246,7 +246,7 @@ func connectProxy(ctx context.Context, prev net.Conn, hop *Proxy, host string, p
 	req = append(req, addrBytes...)
 	req = append(req, byte(port>>8), byte(port))
 	conn.SetDeadline(time.Now().Add(timeout))
-	if _, err := conn.Write(req); err != nil {
+	if err := writeFull(conn, req); err != nil {
 		conn.Close()
 		return nil, err
 	}
