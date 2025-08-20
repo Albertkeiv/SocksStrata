@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -54,12 +55,17 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
+	var wg sync.WaitGroup
+	done := make(chan struct{})
+
 	go func() {
 		<-sigCh
 		cancel()
 		if err := ln.Close(); err != nil {
 			warnLog.Printf("listener close: %v", err)
 		}
+		wg.Wait()
+		close(done)
 	}()
 
 	sem := make(chan struct{}, cfg.General.MaxConnections)
@@ -78,7 +84,7 @@ func main() {
 		if err != nil {
 			select {
 			case <-ctx.Done():
-				return
+				break
 			default:
 			}
 			warnLog.Printf("accept: %v", err)
@@ -94,8 +100,10 @@ func main() {
 			} else {
 				infoLog.Printf("client connected: %s", c.RemoteAddr())
 			}
+			wg.Add(1)
 			go func() {
 				defer func() { <-sem }()
+				defer wg.Done()
 				handleConn(c, userChains.Load().(map[string]*ChainState))
 			}()
 		default:
@@ -103,4 +111,5 @@ func main() {
 			c.Close()
 		}
 	}
+	<-done
 }
